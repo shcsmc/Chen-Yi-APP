@@ -1,6 +1,7 @@
 # 开发分支上的检查：编译 + 单元测试，顺便打一个「备忘测试」包（包名 com.beiwang.memo.dev）。
-# 不发布 Release、不动 latest：手机上正在用的正式版不受影响。
-# 测试包在本次运行页面底部的 Artifacts 里下载（zip，解压后是 APK）。
+# 测试包发到固定标签 dev 的「预发布」（每次覆盖），手机直接下载：
+#   https://github.com/shcsmc/Chen-Yi-APP/releases/download/dev/beiwang-dev.apk
+# 预发布不算 latest：正式版的 releases/latest/download/beiwang.apk 不受影响。
 name: 分支测试包
 
 on:
@@ -9,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: dev-${{ github.ref }}
@@ -57,3 +58,18 @@ jobs:
           name: beiwang-dev
           path: android/app/build/outputs/apk/dev/*.apk
           retention-days: 14
+
+      - name: 发布到测试版（预发布，固定标签 dev）
+        if: success() && env.MEMO_KEYSTORE_FILE != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/dev/*.apk beiwang-dev.apk
+          NOTES="测试版（开发分支 ${GITHUB_REF_NAME}，提交 ${GITHUB_SHA::7}）。包名 com.beiwang.memo.dev，和正式版并排安装，不影响正式版数据。"
+          if gh release view dev >/dev/null 2>&1; then
+            gh release upload dev beiwang-dev.apk --clobber
+            gh release edit dev --notes "$NOTES" --prerelease --latest=false
+          else
+            gh release create dev beiwang-dev.apk --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "备忘 测试版" --notes "$NOTES"
+          fi
