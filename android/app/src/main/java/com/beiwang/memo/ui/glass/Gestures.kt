@@ -1,6 +1,5 @@
 package com.beiwang.memo.ui.glass
 
-import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.geometry.Offset
@@ -38,40 +37,24 @@ suspend fun PointerInputScope.observeDrag(
 }
 
 /**
- * 底栏透镜的手势：按下即浮起；移动超过触摸阈值才算拖动（避免手指轻微抖动带着透镜晃）；
- * 按住不动超过长按时间算长按（拖动开始后不再触发长按）。
+ * 底栏透镜的手势：按下即浮起；移动超过触摸阈值才算拖动（避免手指轻微抖动带着透镜晃）。
  */
 suspend fun PointerInputScope.detectLensGestures(
     onPress: () -> Unit,
     onDrag: (dx: Float) -> Unit,
     onRelease: () -> Unit,
-    onLongPress: () -> Unit,
 ) {
     val slop = viewConfiguration.touchSlop
-    val longPressMs = viewConfiguration.longPressTimeoutMillis
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
         onPress()
-        val downAt = SystemClock.uptimeMillis()
         val id = down.id
         var travelled = Offset.Zero
         var dragging = false
-        var longPressed = false
         while (true) {
-            val event = if (!dragging && !longPressed) {
-                val left = longPressMs - (SystemClock.uptimeMillis() - downAt)
-                if (left <= 0) null else withTimeoutOrNull(left) { awaitPointerEvent() }
-            } else {
-                awaitPointerEvent()
-            }
-            if (event == null) {
-                longPressed = true
-                onLongPress()
-                continue
-            }
+            val event = awaitPointerEvent()
             val change = event.changes.firstOrNull { it.id == id } ?: break
             if (change.changedToUpIgnoreConsumed() || !change.pressed) break
-            if (longPressed) continue
             val delta = change.positionChange()
             if (dragging) {
                 onDrag(delta.x)

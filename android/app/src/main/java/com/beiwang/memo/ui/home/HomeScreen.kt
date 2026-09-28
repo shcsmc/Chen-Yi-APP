@@ -53,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -313,7 +314,6 @@ fun HomeChrome(app: AppState, snap: Snapshot, cats: List<Category>, cat: Categor
                                 store.prefs.setCurrentCat(c.id)
                             }
                         },
-                        onLongPress = { i -> cats.getOrNull(i)?.let { app.sheet = Sheet.CategoryEdit(it.id) } },
                         onAdd = {
                             if (store.canAddCategory) app.sheet = Sheet.CategoryEdit(null)
                             else { haptics.reject(); app.showToast("最多 ${Ids.MAX_CATEGORIES} 个分类") }
@@ -345,7 +345,14 @@ private fun SearchRow(app: AppState, cat: Category) {
         snapshotFlow { field.text.toString() }.distinctUntilChanged().drop(1).collect { app.query = it }
     }
     LaunchedEffect(app.query) { if (app.query != field.text.toString()) field.setTextAndPlaceCursorAtEnd(app.query) }
-    LaunchedEffect(app.searching) { if (app.searching) focus.requestFocus() else focusManager.clearFocus() }
+    LaunchedEffect(app.searching) {
+        if (app.searching) {
+            withFrameNanos { }          // 等输入框挂上再要焦点
+            runCatching { focus.requestFocus() }
+        } else {
+            focusManager.clearFocus()
+        }
+    }
 
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val full = maxWidth
@@ -359,22 +366,30 @@ private fun SearchRow(app: AppState, cat: Category) {
                 Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.search, pal.ink3, Modifier.size(19.dp))
                     Spacer(Modifier.width(8.dp))
-                    BasicTextField(
-                        state = field,
-                        enabled = app.searching,
-                        modifier = Modifier.weight(1f).focusRequester(focus),
-                        textStyle = Type.row.copy(color = pal.ink),
-                        cursorBrush = SolidColor(pal.accent),
-                        lineLimits = TextFieldLineLimits.SingleLine,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        onKeyboardAction = { focusManager.clearFocus() },
-                        decorator = { inner ->
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                if (field.text.isEmpty()) Txt("搜索${cat.name}", Type.row, color = pal.ink3, maxLines = 1)
-                                inner()
-                            }
-                        },
-                    )
+                    // 收起时只放文字：输入框即使 enabled=false 也会吃掉点击，胶囊就点不开了
+                    if (app.searching) {
+                        BasicTextField(
+                            state = field,
+                            modifier = Modifier.weight(1f).focusRequester(focus),
+                            textStyle = Type.row.copy(color = pal.ink),
+                            cursorBrush = SolidColor(pal.accent),
+                            lineLimits = TextFieldLineLimits.SingleLine,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            onKeyboardAction = { focusManager.clearFocus() },
+                            decorator = { inner ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (field.text.isEmpty()) Txt("搜索${cat.name}", Type.row, color = pal.ink3, maxLines = 1)
+                                    inner()
+                                }
+                            },
+                        )
+                    } else {
+                        Txt(
+                            app.query.ifEmpty { "搜索" }, Type.row,
+                            color = if (app.query.isEmpty()) pal.ink3 else pal.ink,
+                            modifier = Modifier.weight(1f), maxLines = 1,
+                        )
+                    }
                     if (app.searching) {
                         Box(
                             Modifier

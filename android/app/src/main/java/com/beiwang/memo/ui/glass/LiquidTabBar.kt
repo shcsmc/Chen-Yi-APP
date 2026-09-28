@@ -1,6 +1,6 @@
 /*
  * 底栏透镜的做法改编自 Kyant0/AndroidLiquidGlass 的 LiquidBottomTabs 示例（Apache License 2.0，Copyright Kyant）。
- * 改动：分类数可变、最右固定一个「＋」、透镜只在分类之间移动、拖动有触摸阈值、支持长按。
+ * 改动：分类数可变、最右固定一个「＋」、透镜只在分类之间移动、拖动有触摸阈值。
  */
 package com.beiwang.memo.ui.glass
 
@@ -10,7 +10,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -90,7 +89,6 @@ fun LiquidTabBar(
     categories: List<Category>,
     selected: Int,
     onSelect: (Int) -> Unit,
-    onLongPress: (Int) -> Unit,
     onAdd: () -> Unit,
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
@@ -104,7 +102,6 @@ fun LiquidTabBar(
     val renderEffect = isRenderEffectSupported()
     val tabsBackdrop = rememberLayerBackdrop()
     val onSelectState = rememberUpdatedState(onSelect)
-    val onLongState = rememberUpdatedState(onLongPress)
 
     BoxWithConstraints(modifier, contentAlignment = Alignment.CenterStart) {
         val density = LocalDensity.current
@@ -181,7 +178,7 @@ fun LiquidTabBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             categories.forEachIndexed { i, c ->
-                TabItem(label = c.name, iconKey = c.icon, color = pal.ink, onClick = { tap(i) }, onLongClick = { onLongState.value(i) })
+                TabItem(label = c.name, iconKey = c.icon, color = pal.ink, onClick = { tap(i) })
             }
             AddSlot(onAdd)
         }
@@ -213,7 +210,7 @@ fun LiquidTabBar(
             ) {
                 // 这一层叠在可见底栏上面、会先收到点击，所以点击处理必须和可见层一样
                 categories.forEachIndexed { i, c ->
-                    TabItem(label = c.name, iconKey = c.icon, color = pal.accent, onClick = { tap(i) }, onLongClick = { onLongState.value(i) })
+                    TabItem(label = c.name, iconKey = c.icon, color = pal.accent, onClick = { tap(i) })
                 }
                 AddSlot(onAdd)
             }
@@ -241,10 +238,6 @@ fun LiquidTabBar(
                                 drag.animateToValue(target.toFloat())
                             }
                             scope.launch { panelDrag.animateTo(0f, spring(1f, 300f, 0.5f)) }
-                        },
-                        onLongPress = {
-                            haptics.longPress()
-                            onLongState.value(drag.targetValue.roundToInt().coerceIn(0, catCount - 1))
                         },
                     )
                 }
@@ -284,20 +277,13 @@ private fun RowScope.TabItem(
     iconKey: String,
     color: Color,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
 ) {
     val scale = LocalTabScale.current
     Column(
         Modifier
             .weight(1f)
             .fillMaxHeight()
-            .combinedClickable(
-                interactionSource = null,
-                indication = null,
-                role = Role.Tab,
-                onLongClick = onLongClick,
-                onClick = onClick,
-            )
+            .clickable(interactionSource = null, indication = null, role = Role.Tab, onClick = onClick)
             .graphicsLayer {
                 val s = scale()
                 scaleX = s

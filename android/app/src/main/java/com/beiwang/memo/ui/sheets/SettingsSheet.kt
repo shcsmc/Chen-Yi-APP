@@ -141,7 +141,7 @@ fun SettingsSheet(app: AppState, snap: Snapshot) {
             SettingRow(Icons.plus, "新建分类", color = pal.accent, onClick = { app.sheet = Sheet.CategoryEdit(null) })
         }
     }
-    Txt("长按底栏里的分类也能改名、换图标", Type.small, color = pal.ink3, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
+    Txt("分类的名字、图标、样式只在这里修改", Type.small, color = pal.ink3, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
 
     SectionTitle("操作")
     Block {
