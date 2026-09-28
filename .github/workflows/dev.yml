@@ -1,0 +1,59 @@
+# 开发分支上的检查：编译 + 单元测试，顺便打一个「备忘测试」包（包名 com.beiwang.memo.dev）。
+# 不发布 Release、不动 latest：手机上正在用的正式版不受影响。
+# 测试包在本次运行页面底部的 Artifacts 里下载（zip，解压后是 APK）。
+name: 分支测试包
+
+on:
+  push:
+    branches: ['claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # 版本号 = 提交数，需要完整历史
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      # 测试包也用正式钥匙签：这样测试包之间能覆盖升级。包名不同，不会和正式版冲突
+      - name: 还原签名文件
+        env:
+          KEYSTORE_B64: ${{ secrets.MEMO_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/memo-release.jks"
+            echo "MEMO_KEYSTORE_FILE=$RUNNER_TEMP/memo-release.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::没有签名 Secrets，测试包未签名（装不上，只做编译检查）"
+          fi
+
+      - name: 编译 + 单元测试
+        working-directory: android
+        env:
+          MEMO_KEYSTORE_PASSWORD: ${{ secrets.MEMO_KEYSTORE_PASSWORD }}
+          MEMO_KEY_ALIAS: memo
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDev testDebugUnitTest --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: beiwang-dev
+          path: android/app/build/outputs/apk/dev/*.apk
+          retention-days: 14

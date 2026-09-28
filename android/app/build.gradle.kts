@@ -2,6 +2,7 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 /* 版本号 = git 提交数：本机和 GitHub 上打出来的一致，且只增不减，手机上可以直接覆盖升级 */
@@ -21,7 +22,6 @@ val storePath = signingValue("storeFile", "MEMO_KEYSTORE_FILE")
 
 android {
     namespace = "com.beiwang.memo"
-    /* androidx.core 1.19 要求用 API 37 编译；运行时行为仍按 targetSdk 36 */
     compileSdk = 37
 
     defaultConfig {
@@ -30,6 +30,7 @@ android {
         targetSdk = 36
         versionCode = commitCount
         versionName = "1.0.$commitCount"
+        manifestPlaceholders["appLabel"] = "备忘"
     }
 
     signingConfigs {
@@ -45,45 +46,61 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            /* Compose 必须开 R8 才流畅：去掉调试检查、内联小函数 */
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (storePath != null) signingConfig = signingConfigs.getByName("release")
         }
+        /* 测试包：和正式版一样的优化（流畅度才有参考价值），但包名不同，
+           能和正式版并排安装，不碰正式版的数据 */
+        create("dev") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            manifestPlaceholders["appLabel"] = "备忘测试"
+            matchingFallbacks += listOf("release")
+        }
+        debug {
+            applicationIdSuffix = ".debug"
+            manifestPlaceholders["appLabel"] = "备忘调试"
+        }
+    }
+
+    buildFeatures {
+        compose = true
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    packaging {
+        resources {
+            excludes += listOf("DebugProbesKt.bin", "kotlin-tooling-metadata.json", "META-INF/*.version")
+        }
+    }
+
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
 }
 
 dependencies {
-    implementation("androidx.activity:activity:1.13.0")
-    implementation("androidx.core:core:1.19.1")
+    val compose = "1.12.0"
+    implementation("androidx.core:core-ktx:1.19.1")
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.compose.ui:ui:$compose")
+    implementation("androidx.compose.foundation:foundation:$compose")
+    implementation("androidx.compose.animation:animation:$compose")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    /* 液态玻璃（Apache-2.0）：https://github.com/Kyant0/AndroidLiquidGlass */
+    implementation("io.github.kyant0:backdrop:2.0.1")
+    implementation("io.github.kyant0:shapes:1.2.1")
+    /* 只用于第一次启动时把旧网页版（IndexedDB）里的数据搬出来 */
     implementation("androidx.webkit:webkit:1.17.1")
-}
 
-/* 网页本体只有一份：仓库根目录的 index.html，构建时复制进 assets */
-abstract class CopyWeb : DefaultTask() {
-    @get:InputFile
-    abstract val source: RegularFileProperty
-
-    @get:OutputDirectory
-    abstract val outputDir: DirectoryProperty
-
-    @TaskAction
-    fun run() {
-        val dir = outputDir.get().asFile
-        dir.mkdirs()
-        source.get().asFile.copyTo(File(dir, "index.html"), overwrite = true)
-    }
-}
-
-val copyWeb = tasks.register<CopyWeb>("copyWeb") {
-    source.set(rootProject.layout.projectDirectory.file("../index.html"))
-}
-
-androidComponents {
-    onVariants { variant ->
-        variant.sources.assets?.addGeneratedSourceDirectory(copyWeb, CopyWeb::outputDir)
-    }
+    testImplementation("junit:junit:4.13.2")
 }
