@@ -13,7 +13,9 @@
   - `Images.kt`：图片文件（原图 ≤2048 + 缩略图 ≤480，`files/img/`），启动时清理没人引用的图片
   - `Background.kt`：自定义背景（`files/bg.jpg`），设背景时算出强调色和深浅
   - `Prefs.kt`：SharedPreferences（当前分类、背景、双指手势、旧数据迁移状态）
-  - `Backup.kt`：导出/导入 JSON（流式；v4 本版格式，也能导入旧版 v3 备份）
+  - `Backup.kt`：导出/导入 JSON（流式；v4 本版格式，也能导入旧版 v3 备份）；导出返回（条数，图片数）供核对
+  - `Vault.kt` / `VaultCrypto.kt`：保险箱（见下）
+  - `Transfer.kt` / `TransferSession.kt`：两台手机局域网直传（见下）
 - `legacy/` —— 旧网页版数据迁移：`LegacyMigration.kt`（隐藏 WebView 读 IndexedDB）、`LegacyCrypto.kt`（旧图案锁密文解密）；配套页面 `assets/legacy/migrate.html`
 - `ui/`
   - `Root.kt`：界面骨架（取景层 + 悬浮层，见下）；`AppState.kt`：不入库的界面状态（编辑中、选中、面板、提示）
@@ -27,7 +29,21 @@
 - **版本号**：`versionCode` = git 提交数，自动递增，不要手写。
 - **applicationId** `com.beiwang.memo`：改了就成了另一个应用，数据不会跟过去。
 - **数据库结构**：只加不删。改结构时 `Db.VERSION` +1，在 `onUpgrade` 里按旧版本逐步迁移；用户手机上有真实数据，任何时候都不能清库重建。
+- **保险箱密钥**：内容密钥只在解锁后的内存里；本机存的便携头必须用安全芯片设备密钥再包一层（`Vault.save`），不能改成明文存便携头 —— 那样拷走文件就能离线暴力猜 6 位数字。不要加任何「找回密码」后门。
 - **旧数据迁移**：旧网页版数据在 WebView 的 IndexedDB（源 `https://appassets.androidplatform.net`，库 `memo-db`）。迁移只读不删；`migrate.html` 必须继续从这个源加载，WebView 的数据目录不能改（不要设 `setDataDirectorySuffix`）。
+
+## 保险箱
+
+- 笔记 `vault=true` 时 title/body 是 `v2:` 密文，图片是 `id.vault` / `id_t.vault` 加密文件；`vaultKey` 非空表示来自别的设备、还没用原密码转换。
+- 密码（`pin:123456` / `pattern:0-1-2-5`）→ PBKDF2-SHA256（21 万次）→ 包住内容密钥 = 便携头；本机再用 Keystore 设备密钥包一层。指纹 = 另一把需强生物识别的 Keystore 密钥包内容密钥。
+- 离开保险箱、App `onStop` 立刻上锁（`AppState.onBackground`）；跳去系统选图/选文件前设 `expectingExternal = true`，否则会把自己锁掉。
+- 改保险箱数据的协程用 `store.scope`（进程级），不要用界面的 `rememberCoroutineScope`：面板关掉会取消协程，加密到一半内存和数据库会对不上。
+
+## 手机之间传输
+
+- `TransferProto`：ECDH(P-256) → 会话密钥 + 6 位确认码（两台手机显示同一个数字，用户核对，防中间人）→ AES-GCM 帧：清单、分块数据（就是备份文件）、导入结果。协议有单元测试。
+- 接收方开随机端口并用 NSD（`_beiwang._tcp.`）广播；发送方自动发现，也可手动输 IP:端口。
+- 另一种方式：导出后用系统分享（FileProvider，`cache/share/`）。
 
 ## 液态玻璃
 
