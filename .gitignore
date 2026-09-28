@@ -1,0 +1,18 @@
+# 第三方二进制，不进仓库
+*.elf
+
+# 本地备份与打包产物
+backup/
+dist/
+*.apk
+
+# 安卓构建与本机配置
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+
+# 本机预览配置
+.claude/

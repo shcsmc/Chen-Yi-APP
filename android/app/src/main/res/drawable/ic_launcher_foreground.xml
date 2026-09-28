@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 玻璃便签：半透明圆角面板 + 亮边 + 两行文字 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path
+        android:pathData="M40,33h22l10,10v30a4,4 0,0 1,-4 4h-28a4,4 0,0 1,-4 -4v-36a4,4 0,0 1,4 -4z"
+        android:fillColor="#33FFFFFF"
+        android:strokeColor="#F2FFFFFF"
+        android:strokeWidth="2.6"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M44,54h20M44,63h13"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round" />
+</vector>
