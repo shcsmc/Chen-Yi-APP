@@ -98,7 +98,8 @@ object Backup {
                     r.beginArray()
                     while (r.hasNext()) {
                         val c = readCategory(r) ?: continue
-                        val local = if (c.builtin) store.data.value.category(c.id) else store.ensureCategory(c)
+                        // 本地已有同 id 的分类就用它；没有（包括本地删掉了「备忘」）就按备份补建，满了则放进「笔记」
+                        val local = store.data.value.category(c.id) ?: store.ensureCategory(c)
                         catMap[c.id] = local?.id ?: (if (c.layout == Layout.List) Ids.MEMO else Ids.NOTE)
                     }
                     r.endArray()
@@ -130,9 +131,12 @@ object Backup {
         r.endObject()
         if (!sawNotes) throw IllegalArgumentException("不是备忘的备份文件")
 
+        // 分类在本地不存在（比如「备忘」被删了）的，一律放进「笔记」，不能让内容挂在看不见的分类下
+        val cats = store.data.value.categories.mapTo(HashSet()) { it.id }
+        val placed = out.map { if (it.cat in cats) it else it.copy(cat = Ids.NOTE) }
         // 覆盖旧笔记时，旧图片文件交给启动时的清理去删（撤销/失败都不会丢图）
-        store.putNotes(out)
-        if (legacyLock != null && out.any { it.encrypted } && store.prefs.legacyLock.value == null) {
+        store.putNotes(placed)
+        if (legacyLock != null && placed.any { it.encrypted } && store.prefs.legacyLock.value == null) {
             store.prefs.setLegacyLock(legacyLock)
         }
         return Result(added, updated, skipped, failed)

@@ -7,7 +7,7 @@
 ## 结构（`android/app/src/main/java/com/beiwang/memo/`）
 
 - `data/` —— 数据层，不含界面代码
-  - `Model.kt`：Category / Note / NoteImage / Snapshot；内置分类 id `note`、`memo`（沿用旧版 type）；分类上限 4 个（底栏加「＋」共 5 格）
+  - `Model.kt`：Category / Note / NoteImage / Snapshot；内置分类 id `note`、`memo`（沿用旧版 type）；只有「笔记」不能删（无家可归的内容都回到它）；分类上限 4 个（底栏加「＋」共 5 格）
   - `Db.kt`：SQLite（表 categories / notes / images）
   - `Store.kt`：**唯一的数据入口**。内存快照是界面的唯一数据源，改动先换快照、再排进单线程 IO 队列写库
   - `Images.kt`：图片文件（原图 ≤2048 + 缩略图 ≤480，`files/img/`），启动时清理没人引用的图片

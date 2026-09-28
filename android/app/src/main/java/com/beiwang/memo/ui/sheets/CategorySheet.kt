@@ -116,7 +116,7 @@ fun CategorySheet(app: AppState, snap: Snapshot, id: String?) {
 
     Spacer(Modifier.height(20.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        if (existing != null && !existing.builtin) {
+        if (existing != null && existing.deletable) {
             GlassButton(onClick = {
                 val count = snap.notes.count { it.cat == existing.id && !it.inTrash }
                 app.dialog = DialogSpec(

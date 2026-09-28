@@ -149,7 +149,7 @@ class Store(context: Context) {
     /** 删除分类：里面的内容全部移进回收站（能恢复，恢复后回到「笔记」） */
     fun deleteCategory(id: String) {
         val c = _data.value.category(id) ?: return
-        if (c.builtin) return
+        if (!c.deletable) return
         trash(_data.value.notes.filter { it.cat == id && !it.inTrash }.map { it.id })
         _data.update { s -> s.copy(categories = s.categories.filterNot { it.id == id }) }
         write { deleteCategory(id) }

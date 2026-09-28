@@ -18,9 +18,12 @@ data class Category(
     val icon: String,
     val layout: Layout,
     val sort: Int,
-    /** 内置分类（笔记、备忘）不能删除 */
+    /** 内置分类（笔记、备忘）：首次安装就有 */
     val builtin: Boolean,
-)
+) {
+    /** 只有「笔记」不能删：它是所有无家可归内容的落脚处（删分类、恢复、导入都会回到这里） */
+    val deletable: Boolean get() = id != Ids.NOTE
+}
 
 @Immutable
 data class NoteImage(val id: String, val w: Int, val h: Int)
