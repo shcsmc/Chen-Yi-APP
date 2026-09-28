@@ -11,6 +11,12 @@ android/.gradle/
 android/build/
 android/app/build/
 android/local.properties
+
+# 签名钥匙和密码：绝不进仓库（公开仓库里谁拿到都能冒充你签包）
+*.jks
+*.keystore
+android/keystore.properties
+android/github-secrets.txt
 android/.idea/
 *.iml
 

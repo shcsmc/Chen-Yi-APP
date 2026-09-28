@@ -1,6 +1,23 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 }
+
+/* 版本号 = git 提交数：本机和 GitHub 上打出来的一致，且只增不减，手机上可以直接覆盖升级 */
+val commitCount: Int = runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+        .standardOutput.asText.get().trim().toInt()
+}.getOrDefault(1)
+
+/* 正式签名：GitHub 上从环境变量（Secrets）读，本机从 keystore.properties 读；两者都不进仓库。
+   同一把钥匙签出来的包才能互相覆盖安装，换钥匙就只能卸载重装（笔记会丢） */
+val keyProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun signingValue(prop: String, env: String): String? = System.getenv(env) ?: keyProps.getProperty(prop)
+val storePath = signingValue("storeFile", "MEMO_KEYSTORE_FILE")
 
 android {
     namespace = "com.beiwang.memo"
@@ -11,13 +28,25 @@ android {
         applicationId = "com.beiwang.memo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = commitCount
+        versionName = "1.0.$commitCount"
+    }
+
+    signingConfigs {
+        create("release") {
+            if (storePath != null) {
+                storeFile = rootProject.file(storePath)
+                storePassword = signingValue("storePassword", "MEMO_KEYSTORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "MEMO_KEY_ALIAS") ?: "memo"
+                keyPassword = signingValue("keyPassword", "MEMO_KEY_PASSWORD") ?: storePassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (storePath != null) signingConfig = signingConfigs.getByName("release")
         }
     }
 
