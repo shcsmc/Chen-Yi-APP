@@ -28,6 +28,8 @@ sealed interface Sheet {
     data object Unlock : Sheet
     /** 保险箱里多选后「移出到」某个分类 */
     data object MoveOut : Sheet
+    /** 手机之间直传：发送 / 接收 */
+    data class Transfer(val sending: Boolean) : Sheet
 }
 
 /** 保险箱密码界面的特殊流程（设置/解锁由状态自动推出，不在这里） */

@@ -355,6 +355,15 @@ private fun TransferPage(app: AppState, back: () -> Unit) {
     val context = LocalContext.current
     SubTitle("传输", back)
     Block {
+        SettingRow(Icons.transfer, "发送到另一台手机", sub = "同一 Wi-Fi", onClick = { app.sheet = Sheet.Transfer(sending = true) })
+        SettingRow(Icons.import, "从另一台手机接收", sub = "同一 Wi-Fi", onClick = { app.sheet = Sheet.Transfer(sending = false) })
+    }
+    Hint(
+        "两台手机连同一个 Wi-Fi，一台点「接收」，另一台点「发送」并选中它；两边核对 6 位数字一样后开始传。" +
+            "全程加密，传完自动核对条数和图片，保险箱内容也一起传（仍然加密）。"
+    )
+    SectionTitle("其他方式")
+    Block {
         SettingRow(Icons.share, "导出并分享", sub = "蓝牙 / 快速分享 / 微信", onClick = {
             app.showToast("正在打包…")
             store.scope.launch {
@@ -363,7 +372,7 @@ private fun TransferPage(app: AppState, back: () -> Unit) {
             }
         })
     }
-    Hint("用系统分享发出备份文件：在分享面板里可以选蓝牙、快速分享（附近分享）或微信等。对方手机在「设置 → 备份 → 导入备份文件」里导入。")
+    Hint("用系统分享发出备份文件：可以选蓝牙、快速分享（附近分享）或微信等。对方在「设置 → 备份 → 导入备份文件」里导入。")
 }
 
 /** 打包到缓存目录（分享用），文件名带日期 */

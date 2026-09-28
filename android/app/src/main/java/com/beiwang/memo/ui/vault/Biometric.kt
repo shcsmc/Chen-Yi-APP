@@ -56,9 +56,9 @@ object Biometric {
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    // 点「用密码」走的是 setNegativeButton 的回调，不会到这里
                     if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED ||
-                        errorCode == BiometricPrompt.BIOMETRIC_ERROR_CANCELED ||
-                        errorCode == BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON
+                        errorCode == BiometricPrompt.BIOMETRIC_ERROR_CANCELED
                     ) onCancel() else onError(errString.toString())
                 }
             },
