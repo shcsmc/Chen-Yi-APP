@@ -26,6 +26,18 @@ sealed interface Sheet {
     data class CategoryEdit(val id: String?) : Sheet
     data object Move : Sheet
     data object Unlock : Sheet
+    /** 保险箱里多选后「移出到」某个分类 */
+    data object MoveOut : Sheet
+}
+
+/** 保险箱密码界面的特殊流程（设置/解锁由状态自动推出，不在这里） */
+sealed interface VaultFlow {
+    /** 改密码：先验证旧密码 */
+    data object ChangeVerify : VaultFlow
+    /** 改密码：输入新密码 */
+    data object ChangeNew : VaultFlow
+    /** 别的设备传来的保险箱内容：输入原设备的保险箱密码 */
+    data class Foreign(val id: String) : VaultFlow
 }
 
 class ToastSpec(val message: String, val undo: (() -> Unit)?, val id: Long = System.nanoTime())
@@ -41,7 +53,7 @@ class DialogSpec(
 
 /** 正在编辑的笔记：文字放在输入框状态里，停手 0.4 秒自动保存 */
 @Stable
-class EditorSession(val base: Note, val layout: Layout, val isNew: Boolean) {
+class EditorSession(val base: Note, val layout: Layout, val isNew: Boolean, val vault: Boolean = false) {
     val id: String get() = base.id
     val title = TextFieldState(base.title)
     val body = TextFieldState(base.body)
@@ -96,6 +108,12 @@ class AppState(val store: Store) {
     /** 条目式分类里顶部的「记一条」输入行 */
     var quickAdd by mutableStateOf(false)
 
+    /** 保险箱界面开着（未解锁时显示密码盘） */
+    var vaultOpen by mutableStateOf(false)
+    var vaultFlow by mutableStateOf<VaultFlow?>(null)
+    /** 在外面选了笔记「移到保险箱」但保险箱还锁着：解锁后再移 */
+    var pendingVaultMove by mutableStateOf<Set<String>>(emptySet())
+
     /** 旧数据迁移进度：null = 没在搬；否则 (已处理, 总数) */
     var migrating by mutableStateOf<Pair<Int, Int>?>(null)
 
@@ -133,10 +151,15 @@ class AppState(val store: Store) {
 
     // ---------------- 编辑 ----------------
 
+    /** 打开笔记。保险箱里的笔记传进来的是解密后的明文 */
     fun open(note: Note) {
         val s = store.data.value
         if (note.encrypted) {
             sheet = Sheet.Unlock
+            return
+        }
+        if (note.vault) {
+            editor = EditorSession(note, Layout.Cards, isNew = false, vault = true)
             return
         }
         val layout = s.category(note.cat)?.layout ?: Layout.Cards
@@ -147,8 +170,15 @@ class AppState(val store: Store) {
     /** 在当前分类新建：卡片式打开编辑页；条目式在列表顶部出一行输入框 */
     fun create() {
         val s = store.data.value
-        val cat = s.category(store.prefs.currentCat.value) ?: s.category(Ids.NOTE) ?: return
         clearSelection()
+        if (vaultOpen) {
+            if (!store.vault.unlocked.value) return
+            val now = System.currentTimeMillis()
+            editor = EditorSession(Note(id = Ids.next(), cat = Ids.NOTE, created = now, updated = now, vault = true),
+                Layout.Cards, isNew = true, vault = true)
+            return
+        }
+        val cat = s.category(store.prefs.currentCat.value) ?: s.category(Ids.NOTE) ?: return
         searching = false
         if (cat.layout == Layout.List) {
             quickAdd = true
@@ -161,11 +191,13 @@ class AppState(val store: Store) {
     /** 自动保存：内容没变不写；新建且还是空白的不写 */
     fun saveEditor() {
         val e = editor ?: return
-        val current = store.data.value.note(e.id)
+        if (e.vault && !store.vault.unlocked.value) return
+        val stored = store.data.value.note(e.id)
+        val current = if (e.vault && stored != null) store.vault.openNote(stored) else stored
         if (current != null && e.sameAs(current)) return
         val n = e.snapshot(System.currentTimeMillis())
         if (!e.persisted && n.isBlank) return
-        store.saveNote(n)
+        if (e.vault) store.saveVaultNote(n) else store.saveNote(n)
         e.persisted = true
         e.savedAt = System.currentTimeMillis()
     }
@@ -192,6 +224,62 @@ class AppState(val store: Store) {
             store.trash(listOf(id))
             showToast("已移入回收站") { store.restore(listOf(id)) }
         }
+    }
+
+    // ---------------- 保险箱 ----------------
+
+    fun openVault() {
+        sheet = null
+        clearSelection()
+        searching = false
+        quickAdd = false
+        vaultOpen = true
+    }
+
+    /** 离开保险箱：立刻上锁，清掉内存里的明文和解密后的图片 */
+    fun closeVault() {
+        if (editor?.vault == true) closeEditor()
+        clearSelection()
+        vaultFlow = null
+        pendingVaultMove = emptySet()
+        vaultOpen = false
+        lockVault()
+    }
+
+    fun lockVault() {
+        store.vault.lock()
+        store.vault.clearCache()
+        store.images.clearSealedCache()
+    }
+
+    /** 解锁成功后：把在外面选好的笔记移进来 */
+    fun afterVaultUnlocked() {
+        val ids = pendingVaultMove
+        if (ids.isEmpty()) return
+        pendingVaultMove = emptySet()
+        store.scope.launch {
+            val n = store.moveToVault(ids)
+            if (n > 0) showToast("已移入保险箱 $n 条")
+        }
+    }
+
+    /** 马上要跳到系统界面（选图片、选文件）拿结果：这一次离开前台不上锁 */
+    var expectingExternal = false
+
+    /** App 切到后台：保险箱立刻上锁（界面停在密码盘，回来要重新解锁） */
+    fun onBackground() {
+        saveEditor()
+        if (expectingExternal) {
+            expectingExternal = false
+            return
+        }
+        if (!store.vault.unlocked.value) return
+        if (editor?.vault == true) {
+            editor = null
+            viewer = null
+        }
+        clearSelection()
+        lockVault()
     }
 
     // ---------------- 启动 / 旧数据 ----------------
@@ -234,8 +322,8 @@ class AppState(val store: Store) {
 
     /** 有东西可以用返回键关掉时为 true */
     val canGoBack: Boolean
-        get() = dialog != null || viewer != null || sheet != null || editor != null || selecting ||
-            quickAdd || searching || query.isNotEmpty()
+        get() = dialog != null || viewer != null || sheet != null || vaultFlow != null || editor != null || selecting ||
+            vaultOpen || quickAdd || searching || query.isNotEmpty()
 
     /** 返回键按层级逐层关闭；返回 false 表示已经没有可关的，交给系统退出 */
     fun back(): Boolean {
@@ -243,8 +331,10 @@ class AppState(val store: Store) {
             dialog != null -> dialog = null
             viewer != null -> viewer = null
             sheet != null -> sheet = null
+            vaultFlow != null -> vaultFlow = null
             editor != null -> closeEditor()
             selecting -> clearSelection()
+            vaultOpen -> closeVault()
             quickAdd -> quickAdd = false
             searching || query.isNotEmpty() -> { searching = false; query = "" }
             else -> return false

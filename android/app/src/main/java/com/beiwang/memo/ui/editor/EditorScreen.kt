@@ -173,7 +173,7 @@ private fun ImageGrid(app: AppState, e: EditorSession) {
 @Composable
 private fun ImageCell(app: AppState, e: EditorSession, m: NoteImage) {
     val pal = LocalPalette.current
-    val bmp = rememberImage(app.store.images, m.id, thumb = true)
+    val bmp = rememberImage(app.store.images, m.id, thumb = true, open = if (e.vault) app.store.vault::openBytes else null)
     Box(Modifier.fillMaxSize().clip(CellShape).background(pal.card).clickable { app.viewer = m }) {
         if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(
@@ -202,13 +202,17 @@ private fun rememberImagePicker(app: AppState, e: EditorSession): () -> Unit {
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         app.showToast("处理中…")
         scope.launch {
-            val added = withContext(Dispatchers.IO) { uris.mapNotNull { app.store.images.importUri(context, it) } }
+            val seal = if (e.vault) app.store.vault::sealBytes else null
+            val added = withContext(Dispatchers.IO) { uris.mapNotNull { app.store.images.importUri(context, it, seal) } }
             e.images = e.images + added
             val failed = uris.size - added.size
             app.showToast(if (failed == 0) "${added.size} 张图已添加" else "添加 ${added.size} 张，${failed} 张读不了")
         }
     }
-    return { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+    return {
+        app.expectingExternal = true
+        launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
 }
 
 /** 编辑页的悬浮按钮：返回 / 已保存提示 / 加图 / 置顶 / 删除 */

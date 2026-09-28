@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.beiwang.memo.data.Crypt
 import com.beiwang.memo.data.Images
 import com.beiwang.memo.data.Note
 import com.beiwang.memo.ui.common.Txt
@@ -78,6 +79,7 @@ fun NoteCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    open: Crypt? = null,
 ) {
     val pal = LocalPalette.current
     val source = remember { MutableInteractionSource() }
@@ -92,7 +94,7 @@ fun NoteCard(
         val cover = note.images.firstOrNull()
         if (cover != null) {
             Box {
-                val bmp = rememberImage(images, cover.id, thumb = true)
+                val bmp = rememberImage(images, cover.id, thumb = true, open = open)
                 val ratio = if (cover.w > 0 && cover.h > 0) (cover.w.toFloat() / cover.h).coerceIn(0.75f, 2.2f) else 4f / 3f
                 if (bmp != null) {
                     Image(bmp, null, Modifier.fillMaxWidth().aspectRatio(ratio), contentScale = ContentScale.Crop)

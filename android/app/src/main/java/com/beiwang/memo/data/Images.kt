@@ -11,14 +11,19 @@ import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.util.LruCache
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+/** 加密 / 解密函数（保险箱提供）；null 表示普通明文图片 */
+typealias Crypt = (ByteArray) -> ByteArray
+
 /**
  * 图片文件：每张图存两份 —— 原图（长边 ≤ 2048）和缩略图（长边 ≤ 480）。
+ * 普通图片是 `id.jpg` / `id_t.jpg`；保险箱里的图片是加密后的 `id.vault` / `id_t.vault`。
  * 列表和编辑页只解码缩略图；看大图时才解码原图。
  * 所有 import/delete/load 都是阻塞调用，只能在 IO 线程上用。
  */
@@ -28,30 +33,80 @@ class Images(context: Context) {
 
     fun full(id: String) = File(dir, "$id.jpg")
     fun thumb(id: String) = File(dir, "${id}_t.jpg")
+    fun sealedFull(id: String) = File(dir, "$id.vault")
+    fun sealedThumb(id: String) = File(dir, "${id}_t.vault")
 
-    /** 从相册/文件导入；读不了返回 null */
-    fun importUri(context: Context, uri: Uri): NoteImage? = runCatching {
+    /** 从相册/文件导入；[seal] 非空时直接加密存（保险箱里加图）。读不了返回 null */
+    fun importUri(context: Context, uri: Uri, seal: Crypt? = null): NoteImage? = runCatching {
         val bmp = decode(context, uri, FULL) ?: return null
-        store(bmp)
+        store(bmp, seal)
     }.getOrNull()
 
     /** 从备份或旧数据导入（JPEG/PNG/WebP 字节） */
     fun importBytes(bytes: ByteArray): NoteImage? = runCatching {
         val bmp = decode(bytes, FULL) ?: return null
-        store(bmp)
+        store(bmp, null)
+    }.getOrNull()
+
+    /** 导入别处传来的加密图片：原样存，不解密 */
+    fun importSealed(full: ByteArray, thumb: ByteArray?, w: Int, h: Int): NoteImage? = runCatching {
+        val id = Ids.next()
+        writeBytes(sealedFull(id), full)
+        if (thumb != null) writeBytes(sealedThumb(id), thumb)
+        NoteImage(id, w, h)
     }.getOrNull()
 
     fun delete(id: String) {
         full(id).delete()
         thumb(id).delete()
-        cache.remove(key(id, true))
-        cache.remove(key(id, false))
+        sealedFull(id).delete()
+        sealedThumb(id).delete()
+        forget(id)
     }
+
+    private fun forget(id: String) {
+        for (t in listOf(true, false)) {
+            cache.remove(key(id, t))
+            sealedCache.remove(key(id, t))
+        }
+    }
+
+    /** 明文图片 → 加密（移入保险箱） */
+    fun sealInPlace(id: String, seal: Crypt) {
+        for ((plain, sealed) in listOf(full(id) to sealedFull(id), thumb(id) to sealedThumb(id))) {
+            if (!plain.exists()) continue
+            writeBytes(sealed, seal(plain.readBytes()))
+            plain.delete()
+        }
+        forget(id)
+    }
+
+    /** 加密图片 → 明文（移出保险箱） */
+    fun openInPlace(id: String, open: Crypt) {
+        for ((plain, sealed) in listOf(full(id) to sealedFull(id), thumb(id) to sealedThumb(id))) {
+            if (!sealed.exists()) continue
+            writeBytes(plain, open(sealed.readBytes()))
+            sealed.delete()
+        }
+        forget(id)
+    }
+
+    /** 换一把密钥重新加密（别的设备传来的保险箱内容并进本机保险箱） */
+    fun resealInPlace(id: String, open: Crypt, seal: Crypt) {
+        for (f in listOf(sealedFull(id), sealedThumb(id))) {
+            if (f.exists()) writeBytes(f, seal(open(f.readBytes())))
+        }
+        forget(id)
+    }
+
+    /** 导出用：加密图片的原始字节（不解密） */
+    fun sealedBytes(id: String, thumb: Boolean): ByteArray? =
+        (if (thumb) sealedThumb(id) else sealedFull(id)).takeIf { it.exists() }?.readBytes()
 
     /** 删掉没有任何笔记（含回收站）引用的图片文件：撤销删图、导入失败等情况留下的孤儿 */
     fun collectGarbage(referenced: Set<String>) {
         dir.listFiles()?.forEach { f ->
-            val id = f.name.removeSuffix(".jpg").removeSuffix("_t")
+            val id = f.name.removeSuffix(".tmp").removeSuffix(".jpg").removeSuffix(".vault").removeSuffix("_t")
             if (id !in referenced) f.delete()
         }
     }
@@ -64,11 +119,21 @@ class Images(context: Context) {
         override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
     }
 
+    /** 保险箱图片单独一个缓存，上锁时整个清空 */
+    private val sealedCache = object : LruCache<String, Bitmap>(24 shl 20) {
+        override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
+    }
+
+    fun clearSealedCache() = sealedCache.evictAll()
+
     private fun key(id: String, thumb: Boolean) = (if (thumb) "t:" else "f:") + id
 
-    fun cached(id: String, thumb: Boolean): Bitmap? = cache.get(key(id, thumb))
+    fun cached(id: String, thumb: Boolean, sealed: Boolean = false): Bitmap? =
+        (if (sealed) sealedCache else cache).get(key(id, thumb))
 
-    fun load(id: String, thumb: Boolean): Bitmap? {
+    /** [open] 非空表示这是保险箱里的加密图片 */
+    fun load(id: String, thumb: Boolean, open: Crypt? = null): Bitmap? {
+        if (open != null) return loadSealed(id, thumb, open)
         val k = key(id, thumb)
         cache.get(k)?.let { return it }
         var file = if (thumb) thumb(id) else full(id)
@@ -83,13 +148,31 @@ class Images(context: Context) {
         return bmp
     }
 
+    private fun loadSealed(id: String, thumb: Boolean, open: Crypt): Bitmap? {
+        val k = key(id, thumb)
+        sealedCache.get(k)?.let { return it }
+        val file = if (thumb && sealedThumb(id).exists()) sealedThumb(id) else sealedFull(id)
+        if (!file.exists()) return null
+        val bytes = runCatching { open(file.readBytes()) }.getOrNull() ?: return null
+        var bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        if (thumb && file == sealedFull(id)) bmp = scaleDown(bmp, THUMB)
+        sealedCache.put(k, bmp)
+        return bmp
+    }
+
     // ---------- 内部 ----------
 
-    private fun store(src: Bitmap): NoteImage {
+    private fun store(src: Bitmap, seal: Crypt?): NoteImage {
         val id = Ids.next()
         val big = opaque(scaleDown(src, FULL))
-        writeJpeg(big, full(id), 86)
-        writeJpeg(scaleDown(big, THUMB), thumb(id), 82)
+        val small = scaleDown(big, THUMB)
+        if (seal == null) {
+            writeJpeg(big, full(id), 86)
+            writeJpeg(small, thumb(id), 82)
+        } else {
+            writeBytes(sealedFull(id), seal(jpegBytes(big, 86)))
+            writeBytes(sealedThumb(id), seal(jpegBytes(small, 82)))
+        }
         return NoteImage(id, big.width, big.height)
     }
 
@@ -156,9 +239,15 @@ class Images(context: Context) {
             return out
         }
 
-        fun writeJpeg(bmp: Bitmap, file: File, quality: Int) {
+        fun writeJpeg(bmp: Bitmap, file: File, quality: Int) = writeBytes(file, jpegBytes(bmp, quality))
+
+        fun jpegBytes(bmp: Bitmap, quality: Int): ByteArray =
+            ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, quality, it) }.toByteArray()
+
+        /** 先写临时文件再改名：写到一半断电也不会留下半张图 */
+        fun writeBytes(file: File, bytes: ByteArray) {
             val tmp = File(file.path + ".tmp")
-            FileOutputStream(tmp).use { bmp.compress(Bitmap.CompressFormat.JPEG, quality, it) }
+            FileOutputStream(tmp).use { it.write(bytes) }
             if (!tmp.renameTo(file)) {
                 tmp.copyTo(file, overwrite = true)
                 tmp.delete()

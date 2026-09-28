@@ -49,8 +49,9 @@ fun TrashSheet(app: AppState, snap: Snapshot) {
 
     Block {
         items.forEach { n ->
-            val catName = snap.category(n.cat)?.name ?: "已删除的分类"
-            val line = (n.title.ifBlank { if (n.encrypted) "已加密的备忘" else n.body }).trim().lineSequence().firstOrNull()
+            val catName = if (n.vault) "保险箱" else snap.category(n.cat)?.name ?: "已删除的分类"
+            val line = if (n.vault) "🔒 保险箱内容（已加密）" else (n.title.ifBlank { if (n.encrypted) "已加密的备忘" else n.body })
+                .trim().lineSequence().firstOrNull()
                 .orEmpty().ifEmpty { if (n.images.isNotEmpty()) "${n.images.size} 张图片" else "空白" }
             SettingRow(null, line, onClick = null) {
                 Column(Modifier.padding(start = 8.dp)) {
@@ -59,7 +60,7 @@ fun TrashSheet(app: AppState, snap: Snapshot) {
                 Spacer(Modifier.width(10.dp))
                 GlassButton(onClick = {
                     store.restore(listOf(n.id))
-                    app.showToast("已恢复到「${snap.category(n.cat)?.name ?: "笔记"}」")
+                    app.showToast(if (n.vault) "已恢复到保险箱" else "已恢复到「${snap.category(n.cat)?.name ?: "笔记"}」")
                 }) {
                     Txt("恢复", Type.label, color = pal.accent, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
                 }

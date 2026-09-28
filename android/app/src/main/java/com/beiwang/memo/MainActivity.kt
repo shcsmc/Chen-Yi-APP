@@ -27,4 +27,10 @@ class MainActivity : ComponentActivity() {
         app.ui.saveEditor()
         super.onPause()
     }
+
+    override fun onStop() {
+        // 真正离开前台（按 Home、切 App、锁屏）：保险箱立刻上锁
+        if (!isChangingConfigurations) app.ui.onBackground()
+        super.onStop()
+    }
 }

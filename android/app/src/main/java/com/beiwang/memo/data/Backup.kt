@@ -13,7 +13,10 @@ import java.io.OutputStreamWriter
  * 备份文件（JSON），边读边写，图片再多也不会一次性占满内存。
  *
  * v4（本版）：{v:4, at, categories:[{id,name,icon,layout,sort,builtin}],
- *              notes:[{id,cat,type,title,body,pin,del,delAt,cr,up,enc,imgs:[{w,h,data}]}]}
+ *              vaults:[保险箱便携头],
+ *              notes:[{id,cat,type,title,body,pin,del,delAt,cr,up,enc,vault,vaultId,imgs:[{w,h,data[,thumb,sealed]}]}]}
+ *   保险箱里的笔记原样导出密文（title/body 是 "v2:…"，图片是加密字节，sealed=true），
+ *   便携头里只有「保险箱密码包住的内容密钥」—— 所以备份文件里的保险箱内容只靠保险箱密码保护。
  * v3（旧网页版）：{v:3, at, lock, notes:[{id,type:"note"|"memo",title,body,pin,del,cr,up,imgs:[{w,h,data}]}]}
  * 两种都能导入；导出时同时写 type 字段，旧版也认得出笔记/备忘。
  */
@@ -23,7 +26,12 @@ object Backup {
 
     // ---------------- 导出 ----------------
 
-    fun export(out: OutputStream, snap: Snapshot, images: Images) {
+    /** 导出；返回（笔记条数，图片张数），用于传输时核对 */
+    fun export(out: OutputStream, store: Store): Pair<Int, Int> {
+        val snap = store.data.value
+        val images = store.images
+        val vault = store.vault
+        var imageCount = 0
         val w = JsonWriter(OutputStreamWriter(out, Charsets.UTF_8).buffered())
         w.beginObject()
         w.name("v").value(4)
@@ -38,6 +46,22 @@ object Backup {
             w.name("sort").value(c.sort)
             w.name("builtin").value(c.builtin)
             w.endObject()
+        }
+        w.endArray()
+        val localVaultId = vault.id
+        val vaultIds = snap.notes.filter { it.vault }.mapTo(LinkedHashSet()) { it.vaultKey.ifEmpty { localVaultId.orEmpty() } }
+        w.name("vaults").beginArray()
+        for (vid in vaultIds) {
+            val h = if (vid == localVaultId) vault.portableHeader() else vault.foreign(vid)
+            if (h != null) {
+                w.beginObject()
+                w.name("id").value(h.id)
+                w.name("kind").value(h.kind)
+                w.name("salt").value(VaultCrypto.b64(h.salt))
+                w.name("iter").value(h.iterations)
+                w.name("key").value(VaultCrypto.b64(h.wrapped))
+                w.endObject()
+            }
         }
         w.endArray()
         w.name("notes").beginArray()
@@ -55,15 +79,31 @@ object Backup {
             w.name("cr").value(n.created)
             w.name("up").value(n.updated)
             w.name("enc").value(n.encrypted)
+            if (n.vault) {
+                w.name("vault").value(true)
+                w.name("vaultId").value(n.vaultKey.ifEmpty { localVaultId.orEmpty() })
+            }
             w.name("imgs").beginArray()
             for (m in n.images) {
-                val f = images.full(m.id)
-                if (!f.exists()) continue
-                w.beginObject()
-                w.name("w").value(m.w)
-                w.name("h").value(m.h)
-                w.name("data").value("data:image/jpeg;base64," + Base64.encodeToString(f.readBytes(), Base64.NO_WRAP))
-                w.endObject()
+                if (n.vault) {
+                    val full = images.sealedBytes(m.id, thumb = false) ?: continue
+                    w.beginObject()
+                    w.name("w").value(m.w)
+                    w.name("h").value(m.h)
+                    w.name("sealed").value(true)
+                    w.name("data").value(Base64.encodeToString(full, Base64.NO_WRAP))
+                    images.sealedBytes(m.id, thumb = true)?.let { w.name("thumb").value(Base64.encodeToString(it, Base64.NO_WRAP)) }
+                    w.endObject()
+                } else {
+                    val f = images.full(m.id)
+                    if (!f.exists()) continue
+                    w.beginObject()
+                    w.name("w").value(m.w)
+                    w.name("h").value(m.h)
+                    w.name("data").value("data:image/jpeg;base64," + Base64.encodeToString(f.readBytes(), Base64.NO_WRAP))
+                    w.endObject()
+                }
+                imageCount++
             }
             w.endArray()
             w.endObject()
@@ -71,6 +111,7 @@ object Backup {
         w.endArray()
         w.endObject()
         w.flush()
+        return snap.notes.size to imageCount
     }
 
     // ---------------- 导入 ----------------
@@ -90,6 +131,17 @@ object Backup {
         var failed = 0
         var sawNotes = false
         var legacyLock: String? = null
+        val headers = HashMap<String, VaultCrypto.Header>()
+        val vaultKeys = HashMap<String, String>()   // 备份里的保险箱 id → 本机存的 vaultKey
+        fun vaultKeyFor(vid: String): String = vaultKeys.getOrPut(vid) {
+            val v = store.vault
+            val h = headers[vid]
+            when {
+                vid.isNotEmpty() && vid == v.id -> ""                          // 本来就是本机的保险箱
+                !v.configured.value && h != null -> { v.adopt(h); "" }          // 本机还没保险箱：直接沿用对方的
+                else -> { h?.let { v.addForeign(it) }; vid }                    // 另一个保险箱：先存着，等输原密码转换
+            }
+        }
 
         r.beginObject()
         while (r.hasNext()) {
@@ -104,6 +156,13 @@ object Backup {
                     }
                     r.endArray()
                 }
+                "vaults" -> {
+                    r.beginArray()
+                    while (r.hasNext()) {
+                        VaultCrypto.Header.parse(readFlatObject(r))?.let { headers[it.id] = it }
+                    }
+                    r.endArray()
+                }
                 "notes" -> {
                     sawNotes = true
                     r.beginArray()
@@ -113,7 +172,9 @@ object Backup {
                             parsed == null -> skipped++
                             else -> {
                                 failed += parsed.second
-                                val n = parsed.first
+                                val raw = parsed.first
+                                // readNote 把备份里的保险箱 id 暂放在 vaultKey 里，这里换成本机的
+                                val n = if (raw.vault) raw.copy(vaultKey = vaultKeyFor(raw.vaultKey)) else raw
                                 val old = existing[n.id]
                                 if (old == null) added++ else updated++
                                 out += n
@@ -187,6 +248,8 @@ object Backup {
         var failed = 0
         var skip = false
         var upKnown = false
+        var vault = false
+        var vaultId = ""
 
         r.beginObject()
         while (r.hasNext()) {
@@ -202,6 +265,8 @@ object Backup {
                 "cr" -> cr = long(r)
                 "up" -> { up = long(r); upKnown = true }
                 "enc" -> enc = bool(r)
+                "vault" -> vault = bool(r)
+                "vaultId" -> vaultId = str(r)
                 "imgs" -> {
                     // 本地版本更新的话不必解码图片。旧版备份里 imgs 排在 up 前面，
                     // 那时还不知道要不要跳过，只能先导入；跳过后留下的图片由启动清理删掉
@@ -234,21 +299,53 @@ object Backup {
             id = nid, cat = localCat, title = title, body = body, images = imgs, pinned = pin,
             deletedAt = if (del) (if (delAt > 0) delAt else up.takeIf { it > 0 } ?: now) else 0L,
             created = if (cr > 0) cr else now, updated = if (up > 0) up else now, encrypted = encrypted,
+            vault = vault, vaultKey = if (vault) vaultId else "",
         ) to failed
     }
 
     private fun readImage(r: JsonReader, images: Images): NoteImage? {
         var data: String? = null
+        var thumb: String? = null
+        var sealed = false
+        var w = 0
+        var h = 0
         r.beginObject()
         while (r.hasNext()) {
-            if (r.nextName() == "data" && r.peek() == JsonToken.STRING) data = r.nextString() else r.skipValue()
+            when (r.nextName()) {
+                "data" -> data = str(r)
+                "thumb" -> thumb = str(r)
+                "sealed" -> sealed = bool(r)
+                "w" -> w = long(r).toInt()
+                "h" -> h = long(r).toInt()
+                else -> r.skipValue()
+            }
         }
         r.endObject()
-        val d = data ?: return null
-        val comma = d.indexOf(',')
-        val bytes = runCatching { Base64.decode(if (comma >= 0) d.substring(comma + 1) else d, Base64.DEFAULT) }
-            .getOrNull() ?: return null
-        return images.importBytes(bytes)
+        val d = data?.takeIf { it.isNotEmpty() } ?: return null
+        fun decode(s: String) = runCatching { Base64.decode(s.substringAfter(','), Base64.DEFAULT) }.getOrNull()
+        val bytes = decode(d) ?: return null
+        // 保险箱图片是密文，原样存，不解码
+        return if (sealed) images.importSealed(bytes, thumb?.let { decode(it) }, w, h) else images.importBytes(bytes)
+    }
+
+    /** 读一个只有字符串/数字字段的小对象，转回 JSON 文本（保险箱便携头用） */
+    private fun readFlatObject(r: JsonReader): String {
+        val sb = StringBuilder("{")
+        r.beginObject()
+        var first = true
+        while (r.hasNext()) {
+            val k = r.nextName()
+            val v = when (r.peek()) {
+                JsonToken.STRING -> org.json.JSONObject.quote(r.nextString())
+                JsonToken.NUMBER -> r.nextString()
+                else -> { r.skipValue(); continue }
+            }
+            if (!first) sb.append(',')
+            sb.append(org.json.JSONObject.quote(k)).append(':').append(v)
+            first = false
+        }
+        r.endObject()
+        return sb.append('}').toString()
     }
 
     private fun readLock(r: JsonReader): String {

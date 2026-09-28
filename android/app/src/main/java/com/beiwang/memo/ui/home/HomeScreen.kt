@@ -91,7 +91,7 @@ import kotlinx.coroutines.flow.drop
 /** 当前分类里要显示的内容：置顶在前，其余按修改时间倒序；有关键词时只留命中的 */
 fun visibleNotes(snap: Snapshot, catId: String, query: String): List<Note> =
     snap.notes.asSequence()
-        .filter { !it.inTrash && it.cat == catId && matches(it, query) }
+        .filter { !it.inTrash && !it.vault && it.cat == catId && matches(it, query) }
         .sortedWith(compareByDescending<Note> { it.pinned }.thenByDescending { it.updated })
         .toList()
 

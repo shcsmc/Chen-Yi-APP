@@ -39,6 +39,7 @@ import com.beiwang.memo.ui.home.HomeChrome
 import com.beiwang.memo.ui.home.HomeContent
 import com.beiwang.memo.ui.sheets.BottomSheet
 import com.beiwang.memo.ui.sheets.CategorySheet
+import com.beiwang.memo.ui.sheets.MoveOutSheet
 import com.beiwang.memo.ui.sheets.MoveSheet
 import com.beiwang.memo.ui.sheets.SettingsSheet
 import com.beiwang.memo.ui.sheets.TrashSheet
@@ -46,6 +47,9 @@ import com.beiwang.memo.ui.sheets.UnlockSheet
 import com.beiwang.memo.ui.theme.LocalPalette
 import com.beiwang.memo.ui.theme.Wallpaper
 import com.beiwang.memo.ui.theme.palette
+import com.beiwang.memo.ui.vault.VaultChrome
+import com.beiwang.memo.ui.vault.VaultContent
+import com.beiwang.memo.ui.vault.VaultGate
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
@@ -60,6 +64,7 @@ fun Root(app: AppState) {
     val snap by store.data.collectAsState()
     val bg by store.prefs.bg.collectAsState()
     val currentId by store.prefs.currentCat.collectAsState()
+    val vaultUnlocked by store.vault.unlocked.collectAsState()
 
     val dark = if (bg.custom) !bg.light else isSystemInDarkTheme()
     val accent = Color(if (bg.custom && bg.accent != 0) bg.accent else if (dark) Background.DARK_DEFAULT else Background.LIGHT_DEFAULT)
@@ -87,7 +92,7 @@ fun Root(app: AppState) {
                         alpha = 1f - p
                         translationX = -p * 28.dp.toPx()
                     }) {
-                        HomeContent(app, snap, cat)
+                        if (app.vaultOpen) VaultContent(app, snap) else HomeContent(app, snap, cat)
                     }
                     AnimatedVisibility(
                         visible = app.editor != null,
@@ -105,8 +110,14 @@ fun Root(app: AppState) {
             // ---------- 悬浮层 ----------
             CompositionLocalProvider(LocalBackdrop provides backdrop) {
                 if (snap.loaded && cat != null) {
-                    AnimatedVisibility(app.editor == null && app.viewer == null, enter = fadeIn(), exit = fadeOut()) {
+                    AnimatedVisibility(app.editor == null && app.viewer == null && !app.vaultOpen, enter = fadeIn(), exit = fadeOut()) {
                         HomeChrome(app, snap, cats, cat)
+                    }
+                    AnimatedVisibility(
+                        app.vaultOpen && vaultUnlocked && app.editor == null && app.viewer == null && app.vaultFlow == null,
+                        enter = fadeIn(), exit = fadeOut(),
+                    ) {
+                        VaultChrome(app, snap)
                     }
                     AnimatedVisibility(app.editor != null && app.viewer == null, enter = fadeIn(), exit = fadeOut()) {
                         editorHolder[0]?.let { EditorChrome(app, it) }
@@ -115,6 +126,7 @@ fun Root(app: AppState) {
                 AnimatedVisibility(app.viewer != null, enter = fadeIn(), exit = fadeOut()) {
                     ImageViewerChrome(app)
                 }
+                VaultGate(app)
                 SheetHost(app, snap)
                 ToastHost(app, bottomGap = if (app.editor != null || app.viewer != null) 24.dp else (64 + 8 + 48 + 10 + 18).dp)
                 DialogHost(app)
@@ -135,6 +147,7 @@ private fun SheetHost(app: AppState, snap: Snapshot) {
             is Sheet.CategoryEdit -> key(s.id) { CategorySheet(app, snap, s.id) }
             Sheet.Move -> MoveSheet(app, snap)
             Sheet.Unlock -> UnlockSheet(app, snap)
+            Sheet.MoveOut -> MoveOutSheet(app, snap)
             null -> Unit
         }
     }

@@ -27,16 +27,23 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
                 " body TEXT NOT NULL, pinned INTEGER NOT NULL, deleted_at INTEGER NOT NULL," +
                 " created INTEGER NOT NULL, updated INTEGER NOT NULL, encrypted INTEGER NOT NULL DEFAULT 0)"
         )
+        // 先建第 1 版，再走一遍升级：保证新装和老用户升级后的结构完全一样
         db.execSQL(
             "CREATE TABLE images(id TEXT PRIMARY KEY, note TEXT NOT NULL, pos INTEGER NOT NULL," +
                 " w INTEGER NOT NULL, h INTEGER NOT NULL)"
         )
         db.execSQL("CREATE INDEX images_note ON images(note)")
         for (c in BUILTIN) insertCategory(db, c)
+        onUpgrade(db, 1, VERSION)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // 目前只有第 1 版。以后：if (oldVersion < 2) { db.execSQL("ALTER TABLE ...") } 依次往下
+        if (oldVersion < 2) {
+            // 第 2 版：保险箱
+            db.execSQL("ALTER TABLE notes ADD COLUMN vault INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE notes ADD COLUMN vault_key TEXT NOT NULL DEFAULT ''")
+        }
+        // 以后：if (oldVersion < 3) { ... } 依次往下
     }
 
     fun loadAll(): Snapshot {
@@ -58,7 +65,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
         }
         val notes = ArrayList<Note>()
         db.rawQuery(
-            "SELECT id,cat,title,body,pinned,deleted_at,created,updated,encrypted FROM notes", null
+            "SELECT id,cat,title,body,pinned,deleted_at,created,updated,encrypted,vault,vault_key FROM notes", null
         ).use { c ->
             while (c.moveToNext()) {
                 val id = c.getString(0)
@@ -66,6 +73,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
                     id = id, cat = c.getString(1), title = c.getString(2), body = c.getString(3),
                     images = imgs[id].orEmpty(), pinned = c.getInt(4) != 0, deletedAt = c.getLong(5),
                     created = c.getLong(6), updated = c.getLong(7), encrypted = c.getInt(8) != 0,
+                    vault = c.getInt(9) != 0, vaultKey = c.getString(10),
                 )
             }
         }
@@ -96,6 +104,8 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
             put("created", n.created)
             put("updated", n.updated)
             put("encrypted", if (n.encrypted) 1 else 0)
+            put("vault", if (n.vault) 1 else 0)
+            put("vault_key", n.vaultKey)
         }, SQLiteDatabase.CONFLICT_REPLACE)
         db.delete("images", "note=?", arrayOf(n.id))
         n.images.forEachIndexed { i, m ->
@@ -121,7 +131,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
     }
 
     companion object {
-        const val VERSION = 1
+        const val VERSION = 2
 
         val BUILTIN = listOf(
             Category(Ids.NOTE, "笔记", "doc", Layout.Cards, 0, builtin = true),

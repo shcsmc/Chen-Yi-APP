@@ -42,6 +42,10 @@ data class Note(
     val updated: Long,
     /** 旧网页版用图案加密过、还没解开的备忘：body 是 "v1:iv:密文" */
     val encrypted: Boolean = false,
+    /** 在保险箱里：title/body 存的是密文（"v2:iv:密文"），图片是加密文件 */
+    val vault: Boolean = false,
+    /** 保险箱密钥归属：空 = 本机保险箱；否则是其他设备保险箱的 id（传过来还没用原密码转换的） */
+    val vaultKey: String = "",
 ) {
     val inTrash: Boolean get() = deletedAt != 0L
     val isBlank: Boolean get() = title.isBlank() && body.isBlank() && images.isEmpty()

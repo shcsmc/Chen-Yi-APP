@@ -39,8 +39,9 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun ImageViewerContent(app: AppState, image: NoteImage) {
-    val full = rememberImage(app.store.images, image.id, thumb = false)
-    val thumb = rememberImage(app.store.images, image.id, thumb = true)
+    val open = if (app.editor?.vault == true) app.store.vault::openBytes else null
+    val full = rememberImage(app.store.images, image.id, thumb = false, open = open)
+    val thumb = rememberImage(app.store.images, image.id, thumb = true, open = open)
     val scope = rememberCoroutineScope()
     val scale = remember(image.id) { Animatable(1f) }
     val offset = remember(image.id) { Animatable(Offset.Zero, Offset.VectorConverter) }

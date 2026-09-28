@@ -21,6 +21,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import com.beiwang.memo.data.Crypt
 import com.beiwang.memo.data.Images
 import com.beiwang.memo.ui.theme.LocalPalette
 import kotlinx.coroutines.Dispatchers
@@ -73,10 +74,12 @@ fun Txt(
 }
 
 /** 异步加载图片（缩略图或原图），先查内存缓存，没有再到 IO 线程解码 */
+/** [open] 非空：保险箱里的加密图片，用它解密 */
 @Composable
-fun rememberImage(images: Images, id: String, thumb: Boolean): ImageBitmap? {
-    val bmp by produceState<Bitmap?>(images.cached(id, thumb), id, thumb) {
-        if (value == null) value = withContext(Dispatchers.IO) { images.load(id, thumb) }
+fun rememberImage(images: Images, id: String, thumb: Boolean, open: Crypt? = null): ImageBitmap? {
+    val sealed = open != null
+    val bmp by produceState<Bitmap?>(images.cached(id, thumb, sealed), id, thumb, sealed) {
+        if (value == null) value = withContext(Dispatchers.IO) { runCatching { images.load(id, thumb, open) }.getOrNull() }
     }
     return remember(bmp) { bmp?.asImageBitmap() }
 }

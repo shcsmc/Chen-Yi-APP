@@ -25,6 +25,7 @@ class Store(context: Context) {
     val prefs = Prefs(app)
     val images = Images(app)
     val background = Background(app)
+    val vault = Vault(app)
     private val db = Db(app)
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -117,6 +118,77 @@ class Store(context: Context) {
             s.copy(notes = kept + list)
         }
         write { upsertNotes(list) }
+    }
+
+    // ---------------- 保险箱 ----------------
+
+    /** 保险箱里的笔记（本机密钥的）解成明文；要求已解锁 */
+    fun vaultNotes(s: Snapshot = _data.value): List<Note> =
+        s.notes.filter { it.vault && it.vaultKey.isEmpty() && !it.inTrash }.map { vault.openNote(it) }
+
+    /** 别的设备传来、还没用原密码转换的保险箱内容：按来源保险箱分组的条数 */
+    fun foreignVaultCounts(s: Snapshot = _data.value): Map<String, Int> =
+        s.notes.filter { it.vault && it.vaultKey.isNotEmpty() }.groupingBy { it.vaultKey }.eachCount()
+
+    /** 保存保险箱里的笔记：明文进来，加密后入库 */
+    fun saveVaultNote(plain: Note) = saveNote(vault.sealNote(plain))
+
+    /** 移入保险箱：文字和图片都加密，明文图片文件删除。要求已解锁 */
+    suspend fun moveToVault(ids: Collection<String>): Int {
+        val set = ids.toHashSet()
+        val targets = _data.value.notes.filter { it.id in set && !it.vault && !it.encrypted }
+        if (targets.isEmpty()) return 0
+        val sealed = withContext(io) {
+            targets.map { n ->
+                n.images.forEach { images.sealInPlace(it.id, vault::sealBytes) }
+                vault.sealNote(n)
+            }.also { db.upsertNotes(it) }
+        }
+        replaceInMemory(sealed)
+        return sealed.size
+    }
+
+    /** 移出保险箱，放进 [cat] 分类。要求已解锁 */
+    suspend fun moveOutOfVault(ids: Collection<String>, cat: String): Int {
+        val set = ids.toHashSet()
+        val targets = _data.value.notes.filter { it.id in set && it.vault && it.vaultKey.isEmpty() }
+        if (targets.isEmpty()) return 0
+        val plain = withContext(io) {
+            targets.map { n ->
+                n.images.forEach { images.openInPlace(it.id, vault::openBytes) }
+                vault.openNote(n).copy(vault = false, vaultKey = "", cat = cat)
+            }.also { db.upsertNotes(it) }
+        }
+        replaceInMemory(plain)
+        return plain.size
+    }
+
+    /**
+     * 别的设备传来的保险箱内容：用原设备的保险箱密码打开，换成本机保险箱的密钥重新加密。
+     * 要求本机保险箱已解锁。密码不对返回 null，否则返回转换的条数。
+     */
+    suspend fun adoptForeignVault(foreignId: String, secret: String): Int? {
+        val header = vault.foreign(foreignId) ?: return null
+        val srcKey = withContext(Dispatchers.Default) { VaultCrypto.unwrap(header, secret) } ?: return null
+        val targets = _data.value.notes.filter { it.vault && it.vaultKey == foreignId }
+        val rekeyed = withContext(io) {
+            targets.map { n ->
+                n.images.forEach { images.resealInPlace(it.id, { b -> VaultCrypto.open(srcKey, b) }, vault::sealBytes) }
+                n.copy(
+                    title = vault.sealText(VaultCrypto.openText(srcKey, n.title)),
+                    body = vault.sealText(VaultCrypto.openText(srcKey, n.body)),
+                    vaultKey = "",
+                )
+            }.also { db.upsertNotes(it) }
+        }
+        replaceInMemory(rekeyed)
+        vault.removeForeign(foreignId)
+        return rekeyed.size
+    }
+
+    private fun replaceInMemory(list: List<Note>) {
+        val byId = list.associateBy { it.id }
+        _data.update { s -> s.copy(notes = s.notes.map { byId[it.id] ?: it }) }
     }
 
     // ---------------- 分类 ----------------
