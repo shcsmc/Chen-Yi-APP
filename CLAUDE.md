@@ -1,32 +1,49 @@
 # 备忘（Chen-Yi-APP）
 
-个人用的笔记 / 备忘应用：一个单文件网页 `index.html`，再用一个很薄的安卓 WebView 外壳打包成 APK。用户用中文交流，代码注释也写中文。
+个人用的笔记 / 备忘安卓应用，原生 Kotlin + Jetpack Compose，界面是液态玻璃风格。用户用中文交流，代码注释也写中文。
 
-## 结构
+（2026-09 起从「单文件网页 + WebView 壳」重写为原生；旧网页版在 `legacy/index.html`，只作参考和数据迁移用，不再参与构建。）
 
-- `index.html` —— 整个应用：原生 JS + IndexedDB，笔记（双列卡片）/ 备忘（单列条目）两个 Tab，主题、壁纸、双指手势、滑动阻尼、回收站、导入导出。**界面和功能的改动基本都只改这一个文件。**
-- `android/` —— WebView 外壳（Java，AGP 9.4.1，Gradle 9.8.0 wrapper，包名 `com.beiwang.memo`，minSdk 26，compileSdk 37 / targetSdk 36）。构建时 `copyWeb` 任务把仓库根目录的 `index.html` 复制进 assets，通过 WebViewAssetLoader 以 `https://appassets.androidplatform.net` 加载（IndexedDB 和 crypto.subtle 需要这个 https 源）。
-- `.github/workflows/android.yml` —— 推送到 `main` 即在 GitHub Actions 上打正式签名的 APK，发布为 Release `v1.0.<提交数>`，同时上传固定名 `beiwang.apk`。用户手机从 `releases/latest/download/beiwang.apk` 下载。
+## 结构（`android/app/src/main/java/com/beiwang/memo/`）
+
+- `data/` —— 数据层，不含界面代码
+  - `Model.kt`：Category / Note / NoteImage / Snapshot；内置分类 id `note`、`memo`（沿用旧版 type）；分类上限 4 个（底栏加「＋」共 5 格）
+  - `Db.kt`：SQLite（表 categories / notes / images）
+  - `Store.kt`：**唯一的数据入口**。内存快照是界面的唯一数据源，改动先换快照、再排进单线程 IO 队列写库
+  - `Images.kt`：图片文件（原图 ≤2048 + 缩略图 ≤480，`files/img/`），启动时清理没人引用的图片
+  - `Background.kt`：自定义背景（`files/bg.jpg`），设背景时算出强调色和深浅
+  - `Prefs.kt`：SharedPreferences（当前分类、背景、双指手势、旧数据迁移状态）
+  - `Backup.kt`：导出/导入 JSON（流式；v4 本版格式，也能导入旧版 v3 备份）
+- `legacy/` —— 旧网页版数据迁移：`LegacyMigration.kt`（隐藏 WebView 读 IndexedDB）、`LegacyCrypto.kt`（旧图案锁密文解密）；配套页面 `assets/legacy/migrate.html`
+- `ui/`
+  - `Root.kt`：界面骨架（取景层 + 悬浮层，见下）；`AppState.kt`：不入库的界面状态（编辑中、选中、面板、提示）
+  - `glass/`：液态玻璃（`Glass.kt` 通用玻璃和按钮、`LiquidTabBar.kt` 底栏透镜、`Motion.kt` 弹簧/高光、`Gestures.kt`）
+  - `home/` 列表和底部控件；`editor/` 编辑页和看大图；`sheets/` 底部面板（设置、回收站、分类、移动、解锁）
+  - `icons/Icons.kt`：全部图标（手写 SVG 路径，24×24）；`theme/`：配色（只由深浅 + 强调色推出）、背景
 
 ## 不要动的东西（除非用户明确要求）
 
 - **签名**：`android/app/build.gradle.kts` 里的 signingConfigs、workflow 里的 Secrets（`MEMO_KEYSTORE_BASE64` / `MEMO_KEYSTORE_PASSWORD`）。钥匙文件不在仓库里；换钥匙会导致手机无法覆盖升级，卸载重装会清空笔记。
 - **版本号**：`versionCode` = git 提交数，自动递增，不要手写。
 - **applicationId** `com.beiwang.memo`：改了就成了另一个应用，数据不会跟过去。
-- **AndroidBridge 钩子**（`index.html`）：`NB = window.AndroidBridge`，用于 `buzz()` 震动、`applyTheme()` → `setBars()` 系统栏颜色、`doExport()` → `saveText()` 保存备份。WebView 不支持 `<a download>`，这些必须保留。安卓返回键调用页面的全局函数 `goBack()`，切后台调用全局 `flush()`，这两个函数名不能改、不能包进闭包。
-- **IndexedDB 结构**（库 `memo-db`，表 notes / blobs / kv）：改结构要做兼容迁移，用户手机上有真实数据。
+- **数据库结构**：只加不删。改结构时 `Db.VERSION` +1，在 `onUpgrade` 里按旧版本逐步迁移；用户手机上有真实数据，任何时候都不能清库重建。
+- **旧数据迁移**：旧网页版数据在 WebView 的 IndexedDB（源 `https://appassets.androidplatform.net`，库 `memo-db`）。迁移只读不删；`migrate.html` 必须继续从这个源加载，WebView 的数据目录不能改（不要设 `setDataDirectorySuffix`）。
 
-## 液态玻璃（`.lg` 元素）
+## 液态玻璃
 
-照用户的参考文档重建：背景捕获 → 模糊 → SDF 圆角 → 边缘折射 → RGB 色散 → 棱边高光。
-- 每个 `.lg` 元素的第一个子元素 `.lg-r` 用 `backdrop-filter` 取背景并模糊，再用 SVG `filter:url(#…)` 做折射；不要改用 `backdrop-filter:url()`（安卓 WebView 上不可靠）。
-- 位移贴图由 `lgMap()` 按 SDF 在 JS 里生成：折射只在离边缘 `band` 像素以内，中间只有模糊；蓝通道是棱边高光。
-- 开合过渡：`--lgp`（0→1）同时驱动模糊、色调、亮边和滤镜位移量，`lgMorph()` 用 ease-out cubic，显示 240ms / 收起 170ms。哪块玻璃该显示由 `LG[].vis()` 判断，MutationObserver 监听 class 变化自动同步。
-- 新加玻璃元素：给元素加 `lg` 类、在 `LG` 数组里登记，文字/图标需要 `position:relative;z-index:1` 才能压在玻璃层上面（注意选择器别把 `.lg-r` 本身也匹配进去）。
-- 注意类名冲突：`.lg` 是玻璃，别再拿它当尺寸类（多选删除键的大尺寸类是 `.big`）。
+用 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（`io.github.kyant0:backdrop`，Apache-2.0）。`glass/` 里改编自它示例代码的文件，文件头保留了出处。
 
-## 验证
+- 界面分两层：**取景层**（`Root` 里 `layerBackdrop` 的那个 Box：背景、列表、编辑区、大图）和**悬浮层**（按钮、底栏、面板、提示）。玻璃只能放在悬浮层，从 `LocalBackdrop` 取背景。
+- 所有按钮用 `GlassButton` / `GlassIconButton`，大面板用 `GlassPanel`（它把自己导出成新的 `LocalBackdrop`，面板里的按钮折射的是面板本身）。
+- 底栏（`LiquidTabBar`）三层：可见的玻璃条 → 看不见的强调色副本（只录成图层）→ 透镜（背景 = 页面 + 强调色副本）。所以透镜盖到哪，哪里的图标就变强调色。
+- 折射需要安卓 13+（RuntimeShader），模糊需要 12+；更低版本自动退化成接近实色的面板（`Palette.glassFallback`）。
+- 颜色一律从 `LocalPalette` 取，不要在界面里写死颜色。
 
-- 网页改动：用本地 HTTP 服务打开 `index.html` 在手机尺寸下看（`file://` / `data:` 下 IndexedDB 不可用，页面会报"数据库打不开"），检查控制台无报错，深色和浅色（晨雾）主题都要看。
-- 不需要在会话里打 APK：合并到 `main` 后 Actions 会自动打包发布。
-- 不要提交：`*.elf`（第三方二进制）、`*.jks`、`keystore.properties`、APK、构建产物（见 `.gitignore`）。
+## 构建与验证
+
+- 推送到 `main` → `.github/workflows/android.yml` 打正式签名 APK，发布 Release `v1.0.<提交数>` 和固定名 `beiwang.apk`（用户手机从 `releases/latest/download/beiwang.apk` 下载）。**用户说「打包」之前不要合并到 main。**
+- 推送到 `claude/**` 分支 → `.github/workflows/dev.yml`：编译 + 单元测试 + 打「备忘测试」包（包名 `com.beiwang.memo.dev`，和正式版并排安装，不发 Release），在该次运行的 Artifacts 里下载。
+- 构建类型：`release`（R8 开启，Compose 不开 R8 会明显卡）、`dev`（同 release，改包名和应用名）、`debug`。
+- 云端会话里 `dl.google.com`（安卓 SDK、Google Maven）可能被网络策略拦截，无法本地编译，只能靠分支 CI 编译检查。
+- 迁移脚本可以在本地验证：用 HTTP 服务打开 `legacy/index.html` 造数据，再在同源打开 `migrate.html`（注入假的 `MigrateBridge`）检查输出。
+- 不要提交：`*.jks`、`keystore.properties`、APK、构建产物（见 `.gitignore`）。
