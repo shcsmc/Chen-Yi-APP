@@ -158,7 +158,9 @@ object Backup {
         // 附件：图片、视频、语音本来就是压缩过的，不再压（省时间）
         zip.setLevel(Deflater.NO_COMPRESSION)
         val buf = ByteArray(64 * 1024)
+        val written = HashSet<String>()
         for ((name, f) in files) {
+            if (!written.add(name)) continue          // 同名条目 zip 不允许，重复的只写一次
             // 导出途中文件被删了（比如刚清空回收站）：跳过它，导入时这个附件会记为「没导入」
             val input = runCatching { f.inputStream() }.getOrNull() ?: continue
             input.use {
