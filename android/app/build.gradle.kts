@@ -30,7 +30,8 @@ android {
         targetSdk = 36
         versionCode = commitCount
         versionName = "1.0.$commitCount"
-        manifestPlaceholders["appLabel"] = "备忘"
+        /* 桌面上显示的名字（2026-09 起叫「辰Yi记」，原名「备忘」）；包名 applicationId 不变，覆盖升级、数据都不受影响 */
+        manifestPlaceholders["appLabel"] = "辰Yi记"
     }
 
     signingConfigs {
@@ -58,12 +59,12 @@ android {
             initWith(getByName("release"))
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
-            manifestPlaceholders["appLabel"] = "备忘测试"
+            manifestPlaceholders["appLabel"] = "辰Yi记测试"
             matchingFallbacks += listOf("release")
         }
         debug {
             applicationIdSuffix = ".debug"
-            manifestPlaceholders["appLabel"] = "备忘调试"
+            manifestPlaceholders["appLabel"] = "辰Yi记调试"
         }
     }
 

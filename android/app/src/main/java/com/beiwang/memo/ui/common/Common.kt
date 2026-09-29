@@ -4,16 +4,23 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -21,9 +28,12 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import com.beiwang.memo.R
 import com.beiwang.memo.data.Crypt
 import com.beiwang.memo.data.Images
 import com.beiwang.memo.ui.theme.LocalPalette
+import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Calendar
@@ -43,6 +53,18 @@ fun android.content.Context.findActivity(): android.app.Activity? {
         c = c.baseContext
     }
     return null
+}
+
+/**
+ * 应用图标（和桌面图标同一套图层：背景 + 前景）。自适应图标画布是 108，
+ * 桌面上看得到的是中间 72，所以两层都放大到 1.5 倍、居中裁成圆角方块。
+ */
+@Composable
+fun AppMark(size: Dp, modifier: Modifier = Modifier) {
+    Box(modifier.size(size).clip(RoundedRectangle(size * 0.26f)), contentAlignment = Alignment.Center) {
+        Image(painterResource(R.drawable.ic_launcher_background), null, Modifier.requiredSize(size * 1.5f))
+        Image(painterResource(R.drawable.ic_launcher_foreground), null, Modifier.requiredSize(size * 1.5f))
+    }
 }
 
 /** 系统震动反馈（跟随系统的触感设置，不需要权限） */

@@ -2,6 +2,7 @@ package com.beiwang.memo.ui.glass
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -131,6 +132,41 @@ fun GlassButton(
                 onLongClick = onLongClick,   // 长按自带震动
                 onClick = { haptics.tick(); onClick() },
             )
+            .then(hl.modifier)
+            .then(hl.gestureModifier),
+        contentAlignment = Alignment.Center,
+        content = content,
+    )
+}
+
+/**
+ * 取景层（列表行里）用的小玻璃按钮。取景层里拿不到「背后的东西」来模糊折射（玻璃只能在悬浮层），
+ * 所以只做玻璃的表面、棱边高光和按压形变 —— 看起来和悬浮层的玻璃按钮一致，
+ * 也没有模糊、折射的开销（列表里每行一个，滚动时不能贵）。
+ */
+@Composable
+fun GlassChip(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    shape: Shape = Capsule(),
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val pal = LocalPalette.current
+    val scope = rememberCoroutineScope()
+    val hl = remember(scope) { InteractiveHighlight(scope) }
+    val haptics = rememberHaptics()
+    Box(
+        modifier
+            .drawBackdrop(
+                backdrop = emptyBackdrop(),
+                shape = { shape },
+                effects = {},
+                highlight = { GlassHighlight },
+                shadow = null,
+                layerBlock = { pressTransform(hl) },
+                onDrawSurface = { drawRect(pal.cardPressed) },
+            )
+            .clickable(interactionSource = null, indication = null, role = Role.Button) { haptics.tick(); onClick() }
             .then(hl.modifier)
             .then(hl.gestureModifier),
         contentAlignment = Alignment.Center,

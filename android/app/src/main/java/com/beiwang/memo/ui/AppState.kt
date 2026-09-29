@@ -31,6 +31,8 @@ sealed interface Sheet {
     data object MoveOut : Sheet
     /** 手机之间直传：发送 / 接收 */
     data class Transfer(val sending: Boolean) : Sheet
+    /** 先挑内容，再导出成文件（[share] = false）或用系统分享发出去（[share] = true） */
+    data class Export(val share: Boolean) : Sheet
 }
 
 /** 保险箱密码界面的特殊流程（设置/解锁由状态自动推出，不在这里） */

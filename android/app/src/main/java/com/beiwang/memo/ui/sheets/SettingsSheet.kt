@@ -1,7 +1,6 @@
 package com.beiwang.memo.ui.sheets
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -51,7 +50,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import com.beiwang.memo.data.Backup
 import com.beiwang.memo.data.Layout
 import com.beiwang.memo.data.Snapshot
@@ -60,6 +58,7 @@ import com.beiwang.memo.ui.AppState
 import com.beiwang.memo.ui.DialogSpec
 import com.beiwang.memo.ui.Sheet
 import com.beiwang.memo.ui.VaultFlow
+import com.beiwang.memo.ui.common.AppMark
 import com.beiwang.memo.ui.common.Txt
 import com.beiwang.memo.ui.common.appVersion
 import com.beiwang.memo.ui.glass.GlassButton
@@ -75,7 +74,6 @@ import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.Calendar
 import androidx.compose.animation.core.snap as snapSpec
 
@@ -132,7 +130,6 @@ private fun HomePage(app: AppState, snap: Snapshot, go: (Page) -> Unit) {
     val lock by store.prefs.legacyLock.collectAsState()
     val pickBg = rememberBackgroundPicker(app)
 
-    val live = snap.notes.count { !it.inTrash && !it.vault }
     val inVault = snap.notes.count { !it.inTrash && it.vault }
     val trashed = snap.notes.count { it.inTrash }
     val encrypted = snap.notes.count { it.encrypted }
@@ -184,9 +181,13 @@ private fun HomePage(app: AppState, snap: Snapshot, go: (Page) -> Unit) {
     }
 
     Column(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Txt("共 $live 条" + (if (inVault > 0) " · 保险箱 $inVault 条" else ""), Type.small, color = pal.ink3)
-        Spacer(Modifier.height(2.dp))
-        Txt("备忘 ${appVersion(context)}", Type.small, color = pal.ink3)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AppMark(18.dp)
+            Spacer(Modifier.width(6.dp))
+            Txt("辰Yi记", Type.label, color = pal.ink2)
+        }
+        Spacer(Modifier.height(3.dp))
+        Txt("版本 ${appVersion(context)}", Type.small, color = pal.ink3)
     }
 }
 
@@ -440,8 +441,6 @@ private fun CategoriesPage(app: AppState, snap: Snapshot, back: () -> Unit) {
 
 @Composable
 private fun TransferPage(app: AppState, back: () -> Unit) {
-    val store = app.store
-    val context = LocalContext.current
     SubTitle("传输", back)
     TileRow(
         { Tile(Icons.qr, "发送", "显示二维码给对方扫", modifier = it) { app.sheet = Sheet.Transfer(sending = true) } },
@@ -453,35 +452,9 @@ private fun TransferPage(app: AppState, back: () -> Unit) {
     )
     SectionTitle("其他方式")
     Block {
-        SettingRow(Icons.share, "导出并分享", sub = "蓝牙 / 快速分享 / 微信", onClick = {
-            app.showToast("正在打包…")
-            store.scope.launch {
-                val file = withContext(Dispatchers.IO) { runCatching { exportToCache(context, app) }.getOrNull() }
-                if (file == null) app.showToast("打包失败") else shareFile(context, app, file)
-            }
-        })
+        SettingRow(Icons.share, "导出并分享", sub = "蓝牙 / 快速分享 / 微信", onClick = { app.sheet = Sheet.Export(share = true) })
     }
-    Hint("用系统分享发出备份文件：可以选蓝牙、快速分享（附近分享）或微信等。对方在「设置 → 备份 → 导入备份文件」里导入。")
-}
-
-/** 打包到缓存目录（分享用），文件名带日期 */
-private fun exportToCache(context: Context, app: AppState): File {
-    val dir = File(context.cacheDir, "share").apply { mkdirs() }
-    dir.listFiles()?.forEach { it.delete() }
-    val f = File(dir, backupName("备忘备份"))
-    f.outputStream().use { Backup.export(it, app.store) }
-    return f
-}
-
-private fun shareFile(context: Context, app: AppState, file: File) {
-    val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
-    val send = Intent(Intent.ACTION_SEND).apply {
-        type = "application/json"
-        putExtra(Intent.EXTRA_STREAM, uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    app.expectingExternal = true
-    context.startActivity(Intent.createChooser(send, "发送备份").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    Hint("用系统分享发出备份文件：可以选蓝牙、快速分享（附近分享）或微信等。发送和分享都可以先挑要哪些内容。")
 }
 
 // ============================== 备份 ==============================
@@ -494,16 +467,6 @@ private fun BackupPage(app: AppState, snap: Snapshot, back: () -> Unit) {
     val encrypted = snap.notes.count { it.encrypted }
     val total = snap.notes.size
 
-    val exportTo = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        app.showToast("正在导出…")
-        store.scope.launch {
-            val counts = withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.openOutputStream(uri)?.use { Backup.export(it, store) } }.getOrNull()
-            }
-            app.showToast(if (counts != null) "已导出 ${counts.first} 条、${counts.second} 张图" else "导出失败")
-        }
-    }
     val importFrom = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         app.showToast("正在导入…")
@@ -531,10 +494,7 @@ private fun BackupPage(app: AppState, snap: Snapshot, back: () -> Unit) {
 
     SubTitle("备份", back)
     Block {
-        SettingRow(Icons.export, "导出备份文件", sub = "$total 条，含图片", onClick = {
-            app.expectingExternal = true
-            exportTo.launch(backupName("备忘备份"))
-        })
+        SettingRow(Icons.export, "导出备份文件", sub = "$total 条，可挑选", onClick = { app.sheet = Sheet.Export(share = false) })
         SettingRow(Icons.import, "导入备份文件", sub = "按时间合并", onClick = {
             app.expectingExternal = true
             importFrom.launch(arrayOf("application/json", "text/plain", "*/*"))

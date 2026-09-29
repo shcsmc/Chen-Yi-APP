@@ -1,6 +1,8 @@
-# 备忘（Chen-Yi-APP）
+# 辰Yi记（Chen-Yi-APP，原名「备忘」）
 
 个人用的笔记 / 备忘安卓应用，原生 Kotlin + Jetpack Compose，界面是液态玻璃风格。用户用中文交流，代码注释也写中文。
+
+- 2026-09 改名「辰Yi记」：只改了桌面显示名（`appLabel`）和界面文字；包名 `com.beiwang.memo`、代码里的 `beiwang`、发布的 `beiwang.apk` 文件名都不改（改了手机就收不到更新）。分类名「备忘」是内容，不是应用名，不要跟着改。
 
 （2026-09 起从「单文件网页 + WebView 壳」重写为原生；旧网页版在 `legacy/index.html`，只作参考和数据迁移用，不再参与构建。）
 
@@ -13,7 +15,7 @@
   - `Images.kt`：图片文件（原图 ≤2048 + 缩略图 ≤480，`files/img/`），启动时清理没人引用的图片
   - `Background.kt`：自定义背景（`files/bg.jpg`），设背景时算出强调色和深浅
   - `Prefs.kt`：SharedPreferences（当前分类、背景、双指手势、旧数据迁移状态）
-  - `Backup.kt`：导出/导入 JSON（流式；v4 本版格式，也能导入旧版 v3 备份）；导出返回（条数，图片数）供核对
+  - `Backup.kt`：导出/导入 JSON（流式；v4 本版格式，也能导入旧版 v3 备份）；导出返回（条数，图片数）供核对；导出可只带选中的笔记（`ids`），分类/保险箱头/图片只带用到的
   - `Vault.kt` / `VaultCrypto.kt`：保险箱（见下）
   - `Transfer.kt` / `TransferSession.kt` / `Qr.kt`：两台手机扫码直传（见下）
 - `legacy/` —— 旧网页版数据迁移：`LegacyMigration.kt`（隐藏 WebView 读 IndexedDB）、`LegacyCrypto.kt`（旧图案锁密文解密）；配套页面 `assets/legacy/migrate.html`
@@ -47,6 +49,7 @@
 - 权限：接收方相机；开热点在安卓 13+ 要 `NEARBY_WIFI_DEVICES`（neverForLocation），12 及以下要精确位置 + 系统「位置信息」开关打开。都由 `TransferSheet` 在调用前申请。
 - 扫码：CameraX 取景 + ZXing 识别（`data/Qr.kt`、`ui/sheets/QrViews.kt`），不依赖谷歌服务（国产手机多数没有）。二维码必须黑白，是唯一不从 `LocalPalette` 取色的地方。
 - 另一种方式：导出后用系统分享（FileProvider，`cache/share/`）。
+- 扫码发送、导出文件、导出分享都先挑内容（`ui/sheets/ExportSheet.kt` 的 `ExportPicker`）：分类整组或展开单条选，保险箱和回收站只能整体选，默认全选。
 
 ## 液态玻璃
 
@@ -54,6 +57,7 @@
 
 - 界面分两层：**取景层**（`Root` 里 `layerBackdrop` 的那个 Box：背景、列表、编辑区、大图）和**悬浮层**（按钮、底栏、面板、提示）。玻璃只能放在悬浮层，从 `LocalBackdrop` 取背景。
 - 所有按钮用 `GlassButton` / `GlassIconButton`，大面板用 `GlassPanel`（它把自己导出成新的 `LocalBackdrop`，面板里的按钮折射的是面板本身）。
+- 取景层里（列表行上）的按钮用 `GlassChip`：取景层拿不到背景，只做玻璃表面、棱边高光和按压形变，不模糊不折射，列表里每行一个也不卡。
 - 底栏（`LiquidTabBar`）三层：可见的玻璃条 → 看不见的强调色副本（只录成图层）→ 透镜（背景 = 页面 + 强调色副本）。所以透镜盖到哪，哪里的图标就变强调色。
 - 折射需要安卓 13+（RuntimeShader），模糊需要 12+；更低版本自动退化成接近实色的面板（`Palette.glassFallback`）。
 - 颜色一律从 `LocalPalette` 取，不要在界面里写死颜色。

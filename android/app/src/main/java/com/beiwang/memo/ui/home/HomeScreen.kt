@@ -1,5 +1,7 @@
 package com.beiwang.memo.ui.home
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
@@ -68,6 +70,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
@@ -138,6 +141,12 @@ fun HomeContent(app: AppState, snap: Snapshot, cat: Category) {
         bottom = bars.calculateBottomPadding() + HomeMetrics.chromeHeight + 28.dp,
     )
     val onClick: (Note) -> Unit = { n -> if (app.selecting) app.toggleSelect(n.id) else app.open(n) }
+    val context = LocalContext.current
+    val copy: (Note) -> Unit = { n ->
+        val text = listOf(n.title, n.body).filter { it.isNotBlank() }.joinToString("\n").trim()
+        context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("辰Yi记", text))
+        app.showToast("已复制")
+    }
     val onLong: (Note) -> Unit = { n -> haptics.longPress(); app.toggleSelect(n.id) }
 
     Box(
@@ -194,6 +203,8 @@ fun HomeContent(app: AppState, snap: Snapshot, cat: Category) {
                             selecting = app.selecting, selected = n.id in app.selection,
                             onClick = { onClick(n) }, onLongClick = { onLong(n) },
                             modifier = Modifier.animateItem(),
+                            // 加密的（旧版图案锁）和空白的没东西可复制
+                            onCopy = if (n.encrypted || (n.title.isBlank() && n.body.isBlank())) null else ({ copy(n) }),
                         )
                     }
                 }

@@ -1,4 +1,4 @@
-# 开发分支上的检查：编译 + 单元测试，顺便打一个「备忘测试」包（包名 com.beiwang.memo.dev）。
+# 开发分支上的检查：编译 + 单元测试，顺便打一个「辰Yi记测试」包（包名 com.beiwang.memo.dev）。
 # 测试包发到固定标签 dev 的「预发布」（每次覆盖），手机直接下载：
 #   https://github.com/shcsmc/Chen-Yi-APP/releases/download/dev/beiwang-dev.apk
 # 预发布不算 latest：正式版的 releases/latest/download/beiwang.apk 不受影响。
@@ -68,8 +68,8 @@ jobs:
           NOTES="测试版（开发分支 ${GITHUB_REF_NAME}，提交 ${GITHUB_SHA::7}）。包名 com.beiwang.memo.dev，和正式版并排安装，不影响正式版数据。"
           if gh release view dev >/dev/null 2>&1; then
             gh release upload dev beiwang-dev.apk --clobber
-            gh release edit dev --notes "$NOTES" --prerelease --latest=false
+            gh release edit dev --title "辰Yi记 测试版" --notes "$NOTES" --prerelease --latest=false
           else
             gh release create dev beiwang-dev.apk --target "$GITHUB_SHA" --prerelease --latest=false \
-              --title "备忘 测试版" --notes "$NOTES"
+              --title "辰Yi记 测试版" --notes "$NOTES"
           fi

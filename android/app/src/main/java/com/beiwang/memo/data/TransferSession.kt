@@ -85,8 +85,8 @@ class TransferSession(context: Context, private val store: Store, val sending: B
 
     // ============================== 发送方 ==============================
 
-    /** 开始发送：[useHotspot] = true 时本机开一个临时热点（调用前界面要先拿到权限） */
-    fun startSending(useHotspot: Boolean) {
+    /** 开始发送 [ids] 这些笔记：[useHotspot] = true 时本机开一个临时热点（调用前界面要先拿到权限） */
+    fun startSending(useHotspot: Boolean, ids: Set<String>) {
         if (job != null) return
         _state.value = TransferState.Busy(if (useHotspot) "正在开启热点…" else "正在准备…")
         job = store.scope.launch(Dispatchers.IO) {
@@ -94,7 +94,7 @@ class TransferSession(context: Context, private val store: Store, val sending: B
             try {
                 coroutineScope {
                     // 边显示二维码边在后台打包，对方连上时多半已经打好了
-                    val packed = async(store.io) { file.outputStream().use { Backup.export(it, store) } }
+                    val packed = async(store.io) { file.outputStream().use { Backup.export(it, store, ids) } }
                     packed.invokeOnCompletion { e -> if (e != null) runCatching { server?.close() } }
                     val before = ipv4Addresses().map { it.second }.toSet()
                     val spot = if (useHotspot) startHotspot() else null

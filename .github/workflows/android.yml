@@ -65,5 +65,5 @@ jobs:
             gh release upload "$TAG" "beiwang-$TAG.apk" beiwang.apk --clobber
           else
             gh release create "$TAG" "beiwang-$TAG.apk" beiwang.apk \
-              --title "备忘 $TAG" --notes "$NOTES" --target "$GITHUB_SHA" --latest
+              --title "辰Yi记 $TAG" --notes "$NOTES" --target "$GITHUB_SHA" --latest
           fi

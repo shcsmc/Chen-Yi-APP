@@ -26,9 +26,15 @@ object Backup {
 
     // ---------------- 导出 ----------------
 
-    /** 导出；返回（笔记条数，图片张数），用于传输时核对 */
-    fun export(out: OutputStream, store: Store): Pair<Int, Int> {
+    /**
+     * 导出；返回（笔记条数，图片张数），用于传输时核对。
+     * [ids] 非空时只导出这些笔记，分类、保险箱便携头、图片也只带它们用到的。
+     */
+    fun export(out: OutputStream, store: Store, ids: Set<String>? = null): Pair<Int, Int> {
         val snap = store.data.value
+        val notes = if (ids == null) snap.notes else snap.notes.filter { it.id in ids }
+        val usedCats = notes.mapTo(HashSet()) { it.cat }
+        val categories = if (ids == null) snap.categories else snap.categories.filter { it.id in usedCats }
         val images = store.images
         val vault = store.vault
         var imageCount = 0
@@ -37,7 +43,7 @@ object Backup {
         w.name("v").value(4)
         w.name("at").value(System.currentTimeMillis())
         w.name("categories").beginArray()
-        for (c in snap.categories) {
+        for (c in categories) {
             w.beginObject()
             w.name("id").value(c.id)
             w.name("name").value(c.name)
@@ -49,7 +55,7 @@ object Backup {
         }
         w.endArray()
         val localVaultId = vault.id
-        val vaultIds = snap.notes.filter { it.vault }.mapTo(LinkedHashSet()) { it.vaultKey.ifEmpty { localVaultId.orEmpty() } }
+        val vaultIds = notes.filter { it.vault }.mapTo(LinkedHashSet()) { it.vaultKey.ifEmpty { localVaultId.orEmpty() } }
         w.name("vaults").beginArray()
         for (vid in vaultIds) {
             val h = if (vid == localVaultId) vault.portableHeader() else vault.foreign(vid)
@@ -65,7 +71,7 @@ object Backup {
         }
         w.endArray()
         w.name("notes").beginArray()
-        for (n in snap.notes) {
+        for (n in notes) {
             val layout = snap.category(n.cat)?.layout ?: Layout.Cards
             w.beginObject()
             w.name("id").value(n.id)
@@ -111,7 +117,7 @@ object Backup {
         w.endArray()
         w.endObject()
         w.flush()
-        return snap.notes.size to imageCount
+        return notes.size to imageCount
     }
 
     // ---------------- 导入 ----------------
@@ -190,7 +196,7 @@ object Backup {
             }
         }
         r.endObject()
-        if (!sawNotes) throw IllegalArgumentException("不是备忘的备份文件")
+        if (!sawNotes) throw IllegalArgumentException("这不是辰Yi记（或旧版备忘）的备份文件")
 
         // 分类在本地不存在（比如「备忘」被删了）的，一律放进「笔记」，不能让内容挂在看不见的分类下
         val cats = store.data.value.categories.mapTo(HashSet()) { it.id }

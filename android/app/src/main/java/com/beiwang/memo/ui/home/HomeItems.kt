@@ -49,6 +49,7 @@ import com.beiwang.memo.ui.common.Txt
 import com.beiwang.memo.ui.common.rememberImage
 import com.beiwang.memo.ui.common.snippet
 import com.beiwang.memo.ui.common.whenText
+import com.beiwang.memo.ui.glass.GlassChip
 import com.beiwang.memo.ui.glass.Icon
 import com.beiwang.memo.ui.icons.Icons
 import com.beiwang.memo.ui.theme.LocalPalette
@@ -131,7 +132,7 @@ fun NoteCard(
     }
 }
 
-/** 单列条目（条目式分类） */
+/** 单列条目（条目式分类）。[onCopy] 非空时右边有复制键（多选时不显示） */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MemoRow(
@@ -142,9 +143,11 @@ fun MemoRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onCopy: (() -> Unit)? = null,
 ) {
     val pal = LocalPalette.current
     val source = remember { MutableInteractionSource() }
+    val chip = onCopy != null && !selecting
     Row(
         modifier
             .fillMaxWidth()
@@ -153,7 +156,8 @@ fun MemoRow(
             .background(pal.card)
             .border(if (selected) 2.dp else 0.5.dp, if (selected) pal.accent else pal.hairline, RowShape)
             .combinedClickable(source, indication = null, onLongClick = onLongClick, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            // 有复制键时上下留白收一点，行高和以前差不多
+            .padding(start = 16.dp, end = if (chip) 7.dp else 16.dp, top = if (chip) 8.dp else 14.dp, bottom = if (chip) 8.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selecting) {
@@ -172,6 +176,12 @@ fun MemoRow(
         }
         Spacer(Modifier.width(10.dp))
         Txt(whenText(note.updated), Type.small, color = pal.ink3)
+        if (chip && onCopy != null) {
+            Spacer(Modifier.width(10.dp))
+            GlassChip(onClick = onCopy, shape = RoundedRectangle(11.dp), modifier = Modifier.size(width = 42.dp, height = 34.dp)) {
+                Icon(Icons.copy, pal.ink2, Modifier.size(18.dp))
+            }
+        }
     }
 }
 

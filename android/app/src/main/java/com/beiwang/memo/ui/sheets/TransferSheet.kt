@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
+import com.beiwang.memo.data.Snapshot
 import com.beiwang.memo.data.TransferSession
 import com.beiwang.memo.data.TransferState
 import com.beiwang.memo.ui.AppState
@@ -59,14 +60,17 @@ import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.delay
 
 /**
- * 手机之间直接传：发送方显示二维码，接收方扫码自动连上。面板一关，连接和热点都断开。
- * 「重试」= 换一个全新的会话（发送方回到选连接方式，接收方重新扫码）。
+ * 手机之间直接传：发送方先挑内容、再选连接方式、显示二维码；接收方扫码自动连上。面板一关，连接和热点都断开。
+ * 「重试」= 换一个全新的会话（发送方回到选连接方式，挑好的内容保留；接收方重新扫码）。
  */
 @Composable
-fun TransferSheet(app: AppState, sending: Boolean) {
+fun TransferSheet(app: AppState, snap: Snapshot, sending: Boolean) {
     val pal = LocalPalette.current
     val context = LocalContext.current
     var attempt by remember { mutableIntStateOf(0) }
+    // 发送方：挑好的笔记；null = 还在挑
+    var picked by remember { mutableStateOf<Set<String>?>(null) }
+    var picking by remember { mutableStateOf(allNoteIds(snap)) }
     val session = remember(attempt) { TransferSession(context.applicationContext, app.store, sending) }
     DisposableEffect(session) { onDispose { session.cancel() } }
     val state by session.state.collectAsState()
@@ -78,7 +82,19 @@ fun TransferSheet(app: AppState, sending: Boolean) {
     }
 
     when (val s = state) {
-        TransferState.Choose -> ChooseStep(app, session)
+        TransferState.Choose -> {
+            val ids = picked
+            if (ids == null) {
+                ExportPicker(snap, picking) { picking = it }
+                Spacer(Modifier.height(14.dp))
+                WideButton(
+                    if (picking.isEmpty()) "先选要发送的内容" else "下一步：选怎么连（${picking.size} 条）",
+                    accent = picking.isNotEmpty(),
+                ) { if (picking.isNotEmpty()) picked = picking }
+            } else {
+                ChooseStep(app, session, ids) { picked = null }
+            }
+        }
         TransferState.Scanning -> ScanStep(app, session)
 
         is TransferState.Busy -> {
@@ -157,7 +173,7 @@ fun TransferSheet(app: AppState, sending: Boolean) {
 // ============================== 发送方：选连接方式 ==============================
 
 @Composable
-private fun ChooseStep(app: AppState, session: TransferSession) {
+private fun ChooseStep(app: AppState, session: TransferSession, ids: Set<String>, repick: () -> Unit) {
     val pal = LocalPalette.current
     val context = LocalContext.current
     var problem by remember { mutableStateOf<String?>(null) }
@@ -169,7 +185,7 @@ private fun ChooseStep(app: AppState, session: TransferSession) {
             fix = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
             return
         }
-        session.startSending(useHotspot = true)
+        session.startSending(useHotspot = true, ids = ids)
     }
 
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -180,11 +196,17 @@ private fun ChooseStep(app: AppState, session: TransferSession) {
         }
     }
 
+    Row(Modifier.fillMaxWidth().padding(start = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Txt("要发送 ${ids.size} 条", Type.label, color = pal.ink2, modifier = Modifier.weight(1f))
+        GlassButton(onClick = repick) {
+            Txt("改选内容", Type.label, modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp))
+        }
+    }
     Line("两台手机怎么连？")
     Spacer(Modifier.height(10.dp))
     OptionCard(Icons.wifi, "同一个 Wi-Fi", "两台手机连着同一个 Wi-Fi，比如家里、公司") {
         problem = null
-        session.startSending(useHotspot = false)
+        session.startSending(useHotspot = false, ids = ids)
     }
     Spacer(Modifier.height(10.dp))
     OptionCard(Icons.hotspot, "本机开热点", "没有 Wi-Fi 也能传：本机开个临时热点，对方扫码自动连上，传完自动关闭") {
@@ -257,7 +279,7 @@ private fun ScanStep(app: AppState, session: TransferSession) {
             modifier = Modifier.fillMaxWidth().aspectRatio(1f),
         )
         Spacer(Modifier.height(12.dp))
-        Line(if (wrongCode) "这不是备忘的传输码，请扫发送方手机上的二维码" else "对准发送方手机上的二维码", center = true)
+        Line(if (wrongCode) "这不是辰Yi记的传输码，请扫发送方手机上的二维码" else "对准发送方手机上的二维码", center = true)
         Hint2("发送方：设置 → 传输 → 发送。对方开了热点时，系统会问是否连接，点「连接」。")
     } else if (denied) {
         Center(Icons.scan, LocalPalette.current.danger)

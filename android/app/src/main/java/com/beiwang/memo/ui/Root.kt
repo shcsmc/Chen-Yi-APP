@@ -44,6 +44,7 @@ import com.beiwang.memo.ui.home.HomeContent
 import com.beiwang.memo.ui.home.HomeMetrics
 import com.beiwang.memo.ui.sheets.BottomSheet
 import com.beiwang.memo.ui.sheets.CategorySheet
+import com.beiwang.memo.ui.sheets.ExportSheet
 import com.beiwang.memo.ui.sheets.MoveOutSheet
 import com.beiwang.memo.ui.sheets.MoveSheet
 import com.beiwang.memo.ui.sheets.SettingsSheet
@@ -154,7 +155,8 @@ private fun SheetHost(app: AppState, snap: Snapshot) {
             Sheet.Move -> MoveSheet(app, snap)
             Sheet.Unlock -> UnlockSheet(app, snap)
             Sheet.MoveOut -> MoveOutSheet(app, snap)
-            is Sheet.Transfer -> key(s.sending) { TransferSheet(app, s.sending) }
+            is Sheet.Transfer -> key(s.sending) { TransferSheet(app, snap, s.sending) }
+            is Sheet.Export -> key(s.share) { ExportSheet(app, snap, s.share) }
             null -> Unit
         }
     }
