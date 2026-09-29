@@ -1,7 +1,5 @@
 package com.beiwang.memo.ui.home
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -9,7 +7,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +25,6 @@ import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -52,6 +48,7 @@ import com.beiwang.memo.ui.common.rememberHaptics
 import com.beiwang.memo.ui.common.rememberImage
 import com.beiwang.memo.ui.common.snippet
 import com.beiwang.memo.ui.common.whenText
+import com.beiwang.memo.ui.common.pressScale
 import com.beiwang.memo.ui.glass.Icon
 import com.beiwang.memo.ui.icons.Icons
 import com.beiwang.memo.ui.theme.LocalPalette
@@ -61,14 +58,6 @@ import com.kyant.shapes.RoundedRectangle
 
 private val CardShape = RoundedRectangle(20.dp)
 private val RowShape = RoundedRectangle(16.dp)
-
-/** 按下时轻轻缩一下 */
-@Composable
-private fun pressScale(source: MutableInteractionSource): Float {
-    val pressed by source.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.965f else 1f, spring(0.6f, 600f), label = "press")
-    return s
-}
 
 /** 双列卡片（卡片式分类） */
 @OptIn(ExperimentalFoundationApi::class)

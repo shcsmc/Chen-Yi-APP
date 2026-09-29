@@ -5,12 +5,10 @@ import android.content.ClipboardManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -30,11 +28,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
@@ -61,6 +57,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -101,16 +98,26 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 
-/** 首页底部那组悬浮控件（搜索行 + 底栏）的尺寸；列表底部留白、提示条位置都按它算 */
+/**
+ * 首页悬浮控件的尺寸；列表留白、提示条位置都按它算。
+ * 底部只有一行：分类底栏 + 右边的新建键；搜索和设置在右上角。
+ */
 object HomeMetrics {
-    /** 底栏离屏幕底部（导航条上沿）的距离 */
-    val barBottom = 18.dp
-    val barHeight = 64.dp
-    /** 搜索行和底栏之间 */
+    /** 底栏下沿离导航条上沿的距离 */
+    val barBottom = 12.dp
+    val barHeight = 60.dp
+    /** 底栏、新建键离屏幕两侧 */
+    val side = 16.dp
+    /** 底栏和新建键之间 */
     val gap = 10.dp
-    val searchHeight = 48.dp
-    /** 整组控件的高度（不含导航条） */
-    val chromeHeight: Dp get() = barBottom + barHeight + gap + searchHeight
+    /** 右上角的圆按钮（搜索、设置） */
+    val topButton = 50.dp
+    /** 右上角按钮离屏幕右边 */
+    val topEnd = 14.dp
+    /** 搜索框收起但还有关键词时的宽度 */
+    val searchWithQuery = 168.dp
+    /** 底部整组控件的高度（不含导航条） */
+    val chromeHeight: Dp get() = barBottom + barHeight
 }
 
 /** 当前分类里要显示的内容：置顶在前，其余按修改时间倒序；有关键词时只留命中的 */
@@ -168,7 +175,7 @@ fun HomeContent(app: AppState, snap: Snapshot, cat: Category) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    item(key = "header", span = StaggeredGridItemSpan.FullLine) { Header(cat.name, notes.size) }
+                    item(key = "header", span = StaggeredGridItemSpan.FullLine) { Header(app, cat.name, notes.size) }
                     items(notes, key = { it.id }) { n ->
                         NoteCard(
                             note = n, images = store.images, keyword = query,
@@ -186,7 +193,7 @@ fun HomeContent(app: AppState, snap: Snapshot, cat: Category) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    item(key = "header") { Header(cat.name, notes.size) }
+                    item(key = "header") { Header(app, cat.name, notes.size) }
                     if (app.quickAdd) {
                         item(key = "quick") {
                             QuickAddRow(
@@ -237,14 +244,18 @@ fun HomeContent(app: AppState, snap: Snapshot, cat: Category) {
     }
 }
 
+/** 大标题。右上角有搜索和设置按钮，标题给它们让出位置；搜索框展开盖住这一行时标题隐去 */
 @Composable
-private fun Header(name: String, count: Int) {
+private fun Header(app: AppState, name: String, count: Int) {
     val pal = LocalPalette.current
+    // 列表左右各有 12dp 留白，这里的右边距要扣掉
+    val buttons = HomeMetrics.topEnd + HomeMetrics.topButton * 2 + 10.dp - 12.dp
+    val end = if (app.query.isNotEmpty()) buttons + HomeMetrics.searchWithQuery - HomeMetrics.topButton else buttons
     Row(
-        Modifier.fillMaxWidth().padding(start = 6.dp, end = 64.dp, top = 6.dp, bottom = 10.dp),
+        Modifier.fillMaxWidth().alpha(if (app.searching) 0f else 1f).padding(start = 6.dp, end = end + 6.dp, top = 6.dp, bottom = 10.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
-        Txt(name, Type.largeTitle, maxLines = 1)
+        Txt(name, Type.largeTitle, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
         Spacer(Modifier.width(10.dp))
         if (count > 0) Txt("$count", Type.label, color = pal.ink3, modifier = Modifier.padding(bottom = 6.dp))
     }
@@ -292,14 +303,30 @@ fun HomeChrome(app: AppState, snap: Snapshot, cats: List<Category>, cat: Categor
     val selectedIndex = cats.indexOfFirst { it.id == cat.id }.coerceAtLeast(0)
 
     Box(Modifier.fillMaxSize()) {
-        // 右上：设置
-        AnimatedVisibility(
-            visible = !app.selecting && !app.searching,
-            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 6.dp, end = 14.dp),
-            enter = fadeIn() + scaleIn(initialScale = 0.6f),
-            exit = fadeOut() + scaleOut(targetScale = 0.6f),
+        // 右上：搜索 + 设置。搜索展开时占满整行，设置先让开
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(top = 6.dp, start = 14.dp, end = HomeMetrics.topEnd),
         ) {
-            GlassIconButton(Icons.gear, onClick = { app.sheet = Sheet.Settings }, size = 50.dp, iconSize = 26.dp)
+            AnimatedVisibility(
+                visible = !app.selecting && !app.searching,
+                modifier = Modifier.align(Alignment.TopEnd),
+                enter = fadeIn() + scaleIn(initialScale = 0.6f),
+                exit = fadeOut() + scaleOut(targetScale = 0.6f),
+            ) {
+                GlassIconButton(Icons.gear, onClick = { app.sheet = Sheet.Settings }, size = HomeMetrics.topButton, iconSize = 26.dp)
+            }
+            // 只淡入淡出：它占满整行，缩放会从屏幕中间长出来
+            AnimatedVisibility(
+                visible = !app.selecting,
+                modifier = Modifier.align(Alignment.TopEnd),
+                enter = fadeIn(), exit = fadeOut(),
+            ) {
+                SearchBox(app, cat)
+            }
         }
 
         // 顶部：已选 N 项
@@ -314,51 +341,46 @@ fun HomeChrome(app: AppState, snap: Snapshot, cats: List<Category>, cat: Categor
             }
         }
 
-        // 底部：平时是「搜索行 + 底栏」，多选时整组换成操作栏。两组叠在同一个位置各自淡入淡出 ——
-        // 不能排在同一个 Column 里：退场的那组动画没结束前还占着位置，进场的这组会先出现在它上面，等它消失再往下一跳
+        // 底部一行：平时是「底栏 + 新建」，多选时换成操作栏。两组叠在同一个位置各自淡入淡出 ——
+        // 不能排在同一个 Column 里：退场的那组动画没结束前还占着位置，进场的这组会先出现在它上面，等它消失再往下一跳。
+        // 不跟着键盘上移：搜索框在顶上，键盘弹出时底部这一行没用，被键盘盖住就好
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .imePadding()
-                .padding(start = 14.dp, end = 14.dp, bottom = HomeMetrics.barBottom),
+                .padding(start = HomeMetrics.side, end = HomeMetrics.side, bottom = HomeMetrics.barBottom),
         ) {
             AnimatedVisibility(
-                visible = !app.selecting,
+                visible = !app.selecting && !app.searching,
                 modifier = Modifier.align(Alignment.BottomCenter),
                 enter = fadeIn() + slideInVertically { it / 3 },
                 exit = fadeOut() + slideOutVertically { it / 3 },
             ) {
-                Column(horizontalAlignment = Alignment.End) {
-                    SearchRow(app, cat)
-                    // 搜索时底栏收起：高度跟着动画一起收，搜索行顺着落到底部，不会等底栏消失后猛地一跳
-                    AnimatedVisibility(
-                        visible = !app.searching,
-                        enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
-                        exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
-                    ) {
-                        Column {
-                            Spacer(Modifier.height(HomeMetrics.gap))
-                            LiquidTabBar(
-                                categories = cats,
-                                selected = selectedIndex,
-                                onSelect = { i ->
-                                    val c = cats.getOrNull(i) ?: return@LiquidTabBar
-                                    if (c.id != store.prefs.currentCat.value) {
-                                        app.quickAdd = false
-                                        store.prefs.setCurrentCat(c.id)
-                                    }
-                                },
-                                onAdd = {
-                                    if (store.canAddCategory) app.sheet = Sheet.CategoryEdit(null)
-                                    else { haptics.reject(); app.showToast("最多 ${Ids.MAX_CATEGORIES} 个分类") }
-                                },
-                                backdrop = backdrop,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    LiquidTabBar(
+                        categories = cats,
+                        selected = selectedIndex,
+                        onSelect = { i ->
+                            val c = cats.getOrNull(i) ?: return@LiquidTabBar
+                            if (c.id != store.prefs.currentCat.value) {
+                                app.quickAdd = false
+                                store.prefs.setCurrentCat(c.id)
+                            }
+                        },
+                        onAdd = {
+                            if (store.canAddCategory) app.sheet = Sheet.CategoryEdit(null)
+                            else { haptics.reject(); app.showToast("最多 ${Ids.MAX_CATEGORIES} 个分类") }
+                        },
+                        backdrop = backdrop,
+                        height = HomeMetrics.barHeight,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(HomeMetrics.gap))
+                    GlassIconButton(
+                        Icons.compose, onClick = { app.create() },
+                        size = HomeMetrics.barHeight, iconSize = 26.dp, iconTint = pal.accent,
+                    )
                 }
             }
             AnimatedVisibility(
@@ -374,12 +396,12 @@ fun HomeChrome(app: AppState, snap: Snapshot, cats: List<Category>, cat: Categor
 }
 
 /**
- * 搜索胶囊 + 新建按钮；点搜索后胶囊展开成整行。
- * 退出搜索：点右边的 ✕（清空关键词）；收起键盘、按返回、点输入框以外的地方（见 Root）只收起，关键词留着，
- * 列表仍是搜索结果，胶囊里显示关键词和 ✕，再按一次返回或点 ✕ 才清空。
+ * 右上角的搜索：平时是个圆按钮；点开后向左展开成整行输入框（设置按钮让开）。
+ * 退出搜索：点 ✕（清空关键词）；收起键盘、按返回、点输入框以外的地方（见 Root）只收起，关键词留着，
+ * 列表仍是搜索结果，这时收成一个带关键词和 ✕ 的小胶囊，再按一次返回或点 ✕ 才清空。
  */
 @Composable
-private fun SearchRow(app: AppState, cat: Category) {
+private fun SearchBox(app: AppState, cat: Category) {
     val pal = LocalPalette.current
     val field = rememberTextFieldState(app.query)
     val focus = remember { FocusRequester() }
@@ -403,20 +425,31 @@ private fun SearchRow(app: AppState, cat: Category) {
         }
     }
 
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopEnd) {
         val full = maxWidth
-        val collapsedWidth = if (app.query.isEmpty()) 132.dp else 176.dp
-        val width by animateDpAsState(if (app.searching) full else collapsedWidth, spring(0.8f, 380f), label = "search")
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            GlassButton(
-                onClick = { app.searching = true },
-                modifier = Modifier
-                    .width(width)
-                    .height(HomeMetrics.searchHeight)
-                    .onGloballyPositioned { app.searchBounds = it.boundsInRoot() },
-            ) {
-                Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.search, pal.ink3, Modifier.size(19.dp))
+        val button = HomeMetrics.topButton
+        // 收起时右边留出设置按钮的位置；展开时设置按钮淡出，输入框占满
+        val endGap by animateDpAsState(if (app.searching) 0.dp else button + 10.dp, spring(0.8f, 380f), label = "searchGap")
+        val target = when {
+            app.searching -> full
+            app.query.isNotEmpty() -> HomeMetrics.searchWithQuery
+            else -> button
+        }
+        val width by animateDpAsState(target, spring(0.8f, 380f), label = "search")
+        GlassButton(
+            onClick = { app.searching = true },
+            modifier = Modifier
+                .padding(end = endGap)
+                .width(width)
+                .height(button)
+                .onGloballyPositioned { app.searchBounds = it.boundsInRoot() },
+        ) {
+            if (!app.searching && app.query.isEmpty() && width < button + 12.dp) {
+                Icon(Icons.search, pal.ink, Modifier.size(22.dp))
+            } else {
+                // 图标的中心和收起时的圆按钮对齐（15 + 20/2 = 25 = 50/2），展开时不会跳
+                Row(Modifier.fillMaxWidth().padding(start = 15.dp, end = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.search, pal.ink3, Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     // 收起时只放文字：输入框即使 enabled=false 也会吃掉点击，胶囊就点不开了
                     if (app.searching) {
@@ -436,21 +469,11 @@ private fun SearchRow(app: AppState, cat: Category) {
                             },
                         )
                     } else {
-                        Txt(
-                            app.query.ifEmpty { "搜索" }, Type.row,
-                            color = if (app.query.isEmpty()) pal.ink3 else pal.ink,
-                            modifier = Modifier.weight(1f), maxLines = 1,
-                        )
+                        Txt(app.query, Type.row, color = pal.ink, modifier = Modifier.weight(1f), maxLines = 1)
                     }
-                    if (app.searching || app.query.isNotEmpty()) {
-                        Spacer(Modifier.width(6.dp))
-                        ClearButton { app.query = ""; app.searching = false }
-                    }
+                    Spacer(Modifier.width(6.dp))
+                    ClearButton { app.query = ""; app.searching = false }
                 }
-            }
-            if (!app.searching) {
-                Spacer(Modifier.width(10.dp))
-                GlassIconButton(Icons.compose, onClick = { app.create() }, size = HomeMetrics.searchHeight, iconSize = 23.dp, iconTint = pal.accent)
             }
         }
     }
@@ -478,7 +501,11 @@ private fun SelectionBar(app: AppState, snap: Snapshot, cat: Category) {
     val pal = LocalPalette.current
     val store = app.store
     val haptics = rememberHaptics()
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(
+        Modifier.fillMaxWidth().height(HomeMetrics.barHeight),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         GlassIconButton(Icons.close, onClick = { app.clearSelection() }, size = 52.dp)
         SelectAction(Icons.selectAll, "全选", pal.ink, Modifier.weight(1f)) {
             app.selectAll(visibleNotes(snap, cat.id, app.query.trim()).map { it.id })

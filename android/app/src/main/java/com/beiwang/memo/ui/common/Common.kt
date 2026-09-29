@@ -4,7 +4,11 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
@@ -152,4 +156,12 @@ fun snippet(text: String, keyword: String, max: Int, highlight: Color): Annotate
         append(text, i + keyword.length, b)
         if (b < text.length) append('…')
     }
+}
+
+/** 按下时轻轻缩一下（卡片、小胶囊按钮用） */
+@Composable
+fun pressScale(source: MutableInteractionSource, pressed: Float = 0.965f): Float {
+    val down by source.collectIsPressedAsState()
+    val s by animateFloatAsState(if (down) pressed else 1f, spring(0.6f, 600f), label = "press")
+    return s
 }

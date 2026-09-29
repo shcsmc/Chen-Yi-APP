@@ -48,6 +48,7 @@ import com.beiwang.memo.ui.common.Txt
 import com.beiwang.memo.ui.common.rememberHaptics
 import com.beiwang.memo.ui.glass.GlassButton
 import com.beiwang.memo.ui.glass.GlassIconButton
+import com.beiwang.memo.ui.home.HomeMetrics
 import com.beiwang.memo.ui.glass.Icon
 import com.beiwang.memo.ui.home.NoteCard
 import com.beiwang.memo.ui.icons.Icons
@@ -160,16 +161,27 @@ fun VaultChrome(app: AppState, snap: Snapshot) {
             }
         }
 
-        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
+        // 新建键和首页的同一个位置、同样大小
+        Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()
+                .padding(start = HomeMetrics.side, end = HomeMetrics.side, bottom = HomeMetrics.barBottom),
+        ) {
             AnimatedVisibility(!app.selecting, Modifier.align(Alignment.BottomEnd), enter = fadeIn(), exit = fadeOut()) {
-                GlassIconButton(Icons.compose, onClick = { app.create() }, size = 56.dp, iconSize = 25.dp, iconTint = pal.accent)
+                GlassIconButton(
+                    Icons.compose, onClick = { app.create() },
+                    size = HomeMetrics.barHeight, iconSize = 26.dp, iconTint = pal.accent,
+                )
             }
             AnimatedVisibility(
                 app.selecting,
                 enter = fadeIn() + slideInVertically { it },
                 exit = fadeOut() + slideOutVertically { it },
             ) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().height(HomeMetrics.barHeight),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     GlassIconButton(Icons.close, onClick = { app.clearSelection() }, size = 52.dp)
                     Action(Icons.selectAll, "全选", pal.ink, Modifier.weight(1f)) {
                         app.selectAll(vaultList(app, snap).map { it.id })

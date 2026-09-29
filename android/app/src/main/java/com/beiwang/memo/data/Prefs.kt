@@ -27,6 +27,11 @@ class Prefs(context: Context) {
     val twoFinger: StateFlow<Boolean> = _twoFinger.asStateFlow()
     fun setTwoFinger(on: Boolean) = set(_twoFinger, on) { putBoolean(K_TWO_FINGER, on) }
 
+    /** 编辑页正文字号（sp），全局一个，在编辑页的「Aa」里改 */
+    private val _fontSize = MutableStateFlow(sp.getInt(K_FONT_SIZE, DEFAULT_FONT_SIZE).coerceIn(FONT_SIZES.first(), FONT_SIZES.last()))
+    val fontSize: StateFlow<Int> = _fontSize.asStateFlow()
+    fun setFontSize(size: Int) = set(_fontSize, size) { putInt(K_FONT_SIZE, size) }
+
     private val _bg = MutableStateFlow(
         BgPrefs(
             custom = sp.getBoolean(K_BG_CUSTOM, false),
@@ -60,14 +65,19 @@ class Prefs(context: Context) {
         sp.edit().apply(write).apply()
     }
 
-    private companion object {
-        const val K_CAT = "cat"
-        const val K_TWO_FINGER = "two_finger"
-        const val K_BG_CUSTOM = "bg_custom"
-        const val K_BG_ACCENT = "bg_accent"
-        const val K_BG_LIGHT = "bg_light"
-        const val K_BG_VERSION = "bg_version"
-        const val K_LEGACY_DONE = "legacy_done"
-        const val K_LEGACY_LOCK = "legacy_lock"
+    companion object {
+        /** 可选的字号（sp） */
+        val FONT_SIZES = listOf(14, 16, 18, 20, 23)
+        const val DEFAULT_FONT_SIZE = 16
+
+        private const val K_FONT_SIZE = "font_size"
+        private const val K_CAT = "cat"
+        private const val K_TWO_FINGER = "two_finger"
+        private const val K_BG_CUSTOM = "bg_custom"
+        private const val K_BG_ACCENT = "bg_accent"
+        private const val K_BG_LIGHT = "bg_light"
+        private const val K_BG_VERSION = "bg_version"
+        private const val K_LEGACY_DONE = "legacy_done"
+        private const val K_LEGACY_LOCK = "legacy_lock"
     }
 }

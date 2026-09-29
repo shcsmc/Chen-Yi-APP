@@ -15,9 +15,12 @@ import com.beiwang.memo.data.Note
 import com.beiwang.memo.data.NoteImage
 import com.beiwang.memo.data.Store
 import com.beiwang.memo.legacy.LegacyMigration
+import com.beiwang.memo.ui.theme.BgCrop
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** 底部弹出的面板 */
 sealed interface Sheet {
@@ -116,6 +119,8 @@ class AppState(val store: Store) {
         private set
     /** 条目式分类里顶部的「记一条」输入行 */
     var quickAdd by mutableStateOf(false)
+    /** 换背景：选好图后的缩放裁剪页 */
+    var bgCrop by mutableStateOf<BgCrop?>(null)
 
     /** 保险箱界面开着（未解锁时显示密码盘） */
     var vaultOpen by mutableStateOf(false)
@@ -238,6 +243,25 @@ class AppState(val store: Store) {
         }
     }
 
+    // ---------------- 背景 ----------------
+
+    /** 裁剪页点「设为背景」：按屏幕上看到的范围裁图、存图、重新取强调色 */
+    fun applyBackgroundCrop() {
+        val c = bgCrop ?: return
+        if (c.scale <= 0f) return
+        val rect = c.visibleRect()
+        val width = c.view.width
+        bgCrop = null
+        showToast("处理中…")
+        store.scope.launch {
+            val next = withContext(Dispatchers.IO) { store.background.setCropped(c.image, rect, width, store.prefs.bg.value) }
+            if (next == null) showToast("背景没设上，再试一次") else {
+                store.prefs.setBg(next)
+                showToast("背景已更换，强调色已跟随")
+            }
+        }
+    }
+
     // ---------------- 保险箱 ----------------
 
     fun openVault() {
@@ -341,13 +365,14 @@ class AppState(val store: Store) {
 
     /** 有东西可以用返回键关掉时为 true */
     val canGoBack: Boolean
-        get() = dialog != null || viewer != null || sheet != null || vaultFlow != null || editor != null || selecting ||
+        get() = dialog != null || bgCrop != null || viewer != null || sheet != null || vaultFlow != null || editor != null || selecting ||
             vaultOpen || quickAdd || searching || query.isNotEmpty()
 
     /** 返回键按层级逐层关闭；返回 false 表示已经没有可关的，交给系统退出 */
     fun back(): Boolean {
         when {
             dialog != null -> dialog = null
+            bgCrop != null -> bgCrop = null
             viewer != null -> viewer = null
             sheet != null -> sheet = null
             vaultFlow != null -> vaultFlow = null

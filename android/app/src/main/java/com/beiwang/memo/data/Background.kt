@@ -3,10 +3,15 @@ package com.beiwang.memo.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
 import android.net.Uri
 import androidx.core.graphics.ColorUtils
 import java.io.File
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * 自定义背景：相册图缩到屏幕尺寸存成 bg.jpg。
@@ -20,6 +25,24 @@ class Background(private val context: Context) {
     fun setFromUri(uri: Uri, current: BgPrefs): BgPrefs? = runCatching {
         val bmp = Images.decode(context, uri, MAX_SIDE) ?: return null
         save(bmp, current)
+    }.getOrNull()
+
+    /**
+     * 缩放裁剪后设背景：[crop] 是原图里要的那块（像素）。比屏幕宽的缩到屏幕宽度，比屏幕小的不放大
+     * （显示时铺满屏幕，放大交给显示那一步）。读不了/裁不出来返回 null。
+     */
+    fun setCropped(src: Bitmap, crop: Rect, screenWidth: Int, current: BgPrefs): BgPrefs? = runCatching {
+        val r = Rect(crop)
+        if (!r.intersect(0, 0, src.width, src.height) || r.width() <= 0 || r.height() <= 0) return null
+        val s = if (screenWidth > 0) min(1f, screenWidth.toFloat() / r.width()) else 1f
+        val w = (r.width() * s).roundToInt().coerceAtLeast(1)
+        val h = (r.height() * s).roundToInt().coerceAtLeast(1)
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        Canvas(out).apply {
+            if (src.hasAlpha()) drawColor(Color.WHITE)          // JPEG 没有透明：透明底先垫白
+            drawBitmap(src, r, Rect(0, 0, w, h), Paint(Paint.FILTER_BITMAP_FLAG))
+        }
+        save(out, current)
     }.getOrNull()
 
     fun setFromBytes(bytes: ByteArray, current: BgPrefs): BgPrefs? = runCatching {

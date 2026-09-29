@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -12,6 +13,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -51,6 +53,8 @@ import com.beiwang.memo.ui.sheets.SettingsSheet
 import com.beiwang.memo.ui.sheets.TransferSheet
 import com.beiwang.memo.ui.sheets.TrashSheet
 import com.beiwang.memo.ui.sheets.UnlockSheet
+import com.beiwang.memo.ui.theme.BgCropChrome
+import com.beiwang.memo.ui.theme.BgCropContent
 import com.beiwang.memo.ui.theme.LocalPalette
 import com.beiwang.memo.ui.theme.Wallpaper
 import com.beiwang.memo.ui.theme.palette
@@ -112,12 +116,19 @@ fun Root(app: AppState) {
                 AnimatedVisibility(app.viewer != null, enter = fadeIn(), exit = fadeOut()) {
                     viewerHolder[0]?.let { ImageViewerContent(app, it) }
                 }
+                // 换背景的缩放裁剪页：盖在最上面。用 AnimatedContent 而不是留一份引用：退场后大图就能回收
+                AnimatedContent(app.bgCrop, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "bgCrop") { c ->
+                    if (c != null) BgCropContent(c)
+                }
             }
 
             // ---------- 悬浮层 ----------
             CompositionLocalProvider(LocalBackdrop provides backdrop) {
                 if (snap.loaded && cat != null) {
-                    AnimatedVisibility(app.editor == null && app.viewer == null && !app.vaultOpen, enter = fadeIn(), exit = fadeOut()) {
+                    AnimatedVisibility(
+                        app.editor == null && app.viewer == null && !app.vaultOpen && app.bgCrop == null,
+                        enter = fadeIn(), exit = fadeOut(),
+                    ) {
                         HomeChrome(app, snap, cats, cat)
                     }
                     AnimatedVisibility(
@@ -132,6 +143,9 @@ fun Root(app: AppState) {
                 }
                 AnimatedVisibility(app.viewer != null, enter = fadeIn(), exit = fadeOut()) {
                     ImageViewerChrome(app)
+                }
+                AnimatedVisibility(app.bgCrop != null, enter = fadeIn(), exit = fadeOut()) {
+                    BgCropChrome(app)
                 }
                 VaultGate(app)
                 SheetHost(app, snap)

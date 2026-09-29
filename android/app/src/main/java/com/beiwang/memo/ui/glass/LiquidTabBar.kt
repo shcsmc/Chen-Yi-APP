@@ -44,6 +44,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import com.beiwang.memo.data.Category
@@ -90,9 +91,12 @@ fun LiquidTabBar(
     onAdd: () -> Unit,
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
+    height: Dp = 64.dp,
 ) {
     val pal = LocalPalette.current
     val haptics = rememberHaptics()
+    // 透镜和强调色那层比底栏上下各缩 4dp
+    val inner = height - 8.dp
     val catCount = categories.size.coerceAtLeast(1)
     val slots = catCount + 1
     val containerColor = if (pal.dark) Color(0xFF121212).copy(alpha = 0.4f) else Color(0xFFFAFAFA).copy(alpha = 0.4f)
@@ -170,7 +174,7 @@ fun LiquidTabBar(
                     onDrawSurface = { drawRect(if (renderEffect) containerColor else fallback) },
                 )
                 .then(highlight.modifier)
-                .height(64.dp)
+                .height(height)
                 .fillMaxWidth()
                 .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -201,7 +205,7 @@ fun LiquidTabBar(
                         highlight = { GlassHighlight.copy(alpha = drag.pressProgress) },
                         onDrawSurface = { drawRect(containerColor) },
                     )
-                    .height(56.dp)
+                    .height(inner)
                     .fillMaxWidth()
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -262,7 +266,7 @@ fun LiquidTabBar(
                         drawRect(Color.Black.copy(alpha = 0.03f * p))
                     },
                 )
-                .height(56.dp)
+                .height(inner)
                 .fillMaxWidth(1f / slots),
         )
     }

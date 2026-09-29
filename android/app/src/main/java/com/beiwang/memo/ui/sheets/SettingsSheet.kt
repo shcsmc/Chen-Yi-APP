@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.beiwang.memo.data.Backup
+import com.beiwang.memo.data.Images
 import com.beiwang.memo.data.Layout
 import com.beiwang.memo.data.Snapshot
 import com.beiwang.memo.legacy.LegacyMigration
@@ -58,6 +59,7 @@ import com.beiwang.memo.ui.AppState
 import com.beiwang.memo.ui.DialogSpec
 import com.beiwang.memo.ui.Sheet
 import com.beiwang.memo.ui.VaultFlow
+import com.beiwang.memo.ui.theme.BgCrop
 import com.beiwang.memo.ui.common.AppMark
 import com.beiwang.memo.ui.common.Txt
 import com.beiwang.memo.ui.common.appVersion
@@ -191,18 +193,20 @@ private fun HomePage(app: AppState, snap: Snapshot, go: (Page) -> Unit) {
     }
 }
 
-/** 从相册选背景：算出强调色和深浅后整体换掉 */
+/** 从相册选背景：先解码，进缩放裁剪页挑好范围，再设为背景（算强调色和深浅，见 AppState.applyBackgroundCrop） */
 @Composable
 private fun rememberBackgroundPicker(app: AppState): ManagedActivityResultLauncher<PickVisualMediaRequest, Uri?> {
     val store = app.store
+    val context = LocalContext.current
     return rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         app.showToast("处理中…")
         store.scope.launch {
-            val next = withContext(Dispatchers.IO) { store.background.setFromUri(uri, store.prefs.bg.value) }
-            if (next == null) app.showToast("这张图读不了") else {
-                store.prefs.setBg(next)
-                app.showToast("背景已更换，强调色已跟随")
+            val bmp = withContext(Dispatchers.IO) { runCatching { Images.decode(context, uri, BgCrop.MAX_SIDE) }.getOrNull() }
+            if (bmp == null) app.showToast("这张图读不了") else {
+                app.dismissToast()
+                app.sheet = null
+                app.bgCrop = BgCrop(bmp)
             }
         }
     }
