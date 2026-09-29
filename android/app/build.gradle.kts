@@ -99,6 +99,12 @@ dependencies {
     /* 液态玻璃（Apache-2.0）：https://github.com/Kyant0/AndroidLiquidGlass */
     implementation("io.github.kyant0:backdrop:2.0.1")
     implementation("io.github.kyant0:shapes:1.2.1")
+    /* 手机之间扫码传输：相机取景（CameraX）+ 二维码生成/识别（ZXing，纯 Java、Apache-2.0，不依赖谷歌服务） */
+    val camerax = "1.6.2"
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
+    implementation("com.google.zxing:core:3.5.4")
     /* 只用于第一次启动时把旧网页版（IndexedDB）里的数据搬出来 */
     implementation("androidx.webkit:webkit:1.17.1")
 

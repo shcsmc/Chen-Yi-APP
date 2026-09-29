@@ -8,6 +8,12 @@
 - 许可：Apache License 2.0，Copyright Kyant
 - 来源：https://github.com/Kyant0/AndroidLiquidGlass
 
-## AndroidX / Jetpack Compose / Kotlin
+## ZXing（二维码生成与识别）
+
+- 以依赖形式使用：`com.google.zxing:core`
+- 许可：Apache License 2.0
+- 来源：https://github.com/zxing/zxing
+
+## AndroidX / Jetpack Compose / CameraX / Kotlin
 
 - 许可：Apache License 2.0

@@ -242,9 +242,9 @@ private fun TileRow(a: @Composable (Modifier) -> Unit, b: @Composable (Modifier)
     }
 }
 
-/** 卡片底：半透明底色 + 细边，按下时微缩、底色加深 */
+/** 卡片底：半透明底色 + 细边，按下时微缩、底色加深（设置和传输面板里的大块选项都用它） */
 @Composable
-private fun TileSurface(
+internal fun PressCard(
     shape: Shape,
     modifier: Modifier,
     onClick: () -> Unit,
@@ -291,7 +291,7 @@ private fun Tile(
     onClick: () -> Unit,
 ) {
     val pal = LocalPalette.current
-    TileSurface(TileShape, modifier, onClick) {
+    PressCard(TileShape, modifier, onClick) {
         if (big) {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 TileIcon(icon, 48.dp, on)
@@ -327,7 +327,7 @@ private fun MiniTile(
     onClick: () -> Unit,
 ) {
     val pal = LocalPalette.current
-    TileSurface(MiniShape, modifier, onClick) {
+    PressCard(MiniShape, modifier, onClick) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
             TileIcon(icon, 32.dp, on)
             Spacer(Modifier.width(10.dp))
@@ -443,13 +443,13 @@ private fun TransferPage(app: AppState, back: () -> Unit) {
     val store = app.store
     val context = LocalContext.current
     SubTitle("传输", back)
-    Block {
-        SettingRow(Icons.transfer, "发送到另一台手机", sub = "同一 Wi-Fi", onClick = { app.sheet = Sheet.Transfer(sending = true) })
-        SettingRow(Icons.import, "从另一台手机接收", sub = "同一 Wi-Fi", onClick = { app.sheet = Sheet.Transfer(sending = false) })
-    }
+    TileRow(
+        { Tile(Icons.qr, "发送", "显示二维码给对方扫", modifier = it) { app.sheet = Sheet.Transfer(sending = true) } },
+        { Tile(Icons.scan, "接收", "扫对方的二维码", modifier = it) { app.sheet = Sheet.Transfer(sending = false) } },
+    )
     Hint(
-        "两台手机连同一个 Wi-Fi，一台点「接收」，另一台点「发送」并选中它；两边核对 6 位数字一样后开始传。" +
-            "全程加密，传完自动核对条数和图片，保险箱内容也一起传（仍然加密）。"
+        "发送时选「同一个 Wi-Fi」或「本机开热点」（没有 Wi-Fi 时用）；接收方扫码后自动连上开始传，不用输地址。" +
+            "全程加密，传完自动核对条数和图片；保险箱内容也一起传（仍然加密）。"
     )
     SectionTitle("其他方式")
     Block {

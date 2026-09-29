@@ -15,7 +15,7 @@
   - `Prefs.kt`：SharedPreferences（当前分类、背景、双指手势、旧数据迁移状态）
   - `Backup.kt`：导出/导入 JSON（流式；v4 本版格式，也能导入旧版 v3 备份）；导出返回（条数，图片数）供核对
   - `Vault.kt` / `VaultCrypto.kt`：保险箱（见下）
-  - `Transfer.kt` / `TransferSession.kt`：两台手机局域网直传（见下）
+  - `Transfer.kt` / `TransferSession.kt` / `Qr.kt`：两台手机扫码直传（见下）
 - `legacy/` —— 旧网页版数据迁移：`LegacyMigration.kt`（隐藏 WebView 读 IndexedDB）、`LegacyCrypto.kt`（旧图案锁密文解密）；配套页面 `assets/legacy/migrate.html`
 - `ui/`
   - `Root.kt`：界面骨架（取景层 + 悬浮层，见下）；`AppState.kt`：不入库的界面状态（编辑中、选中、面板、提示）
@@ -39,10 +39,13 @@
 - 离开保险箱、App `onStop` 立刻上锁（`AppState.onBackground`）；跳去系统选图/选文件前设 `expectingExternal = true`，否则会把自己锁掉。
 - 改保险箱数据的协程用 `store.scope`（进程级），不要用界面的 `rememberCoroutineScope`：面板关掉会取消协程，加密到一半内存和数据库会对不上。
 
-## 手机之间传输
+## 手机之间传输（扫码）
 
-- `TransferProto`：ECDH(P-256) → 会话密钥 + 6 位确认码（两台手机显示同一个数字，用户核对，防中间人）→ AES-GCM 帧：清单、分块数据（就是备份文件）、导入结果。协议有单元测试。
-- 接收方开随机端口并用 NSD（`_beiwang._tcp.`）广播；发送方自动发现，也可手动输 IP:端口。
+- 发送方开随机端口，显示二维码（`TransferProto.Invite`：`BWT1;k=口令;p=端口;h=地址…;s=热点名;w=密码;t=加密方式`）；接收方扫码后连过去。不用手动输地址，也没有 6 位数字核对。
+- 安全：会话密钥 = HMAC(二维码里的 16 字节一次性口令, ECDH 共享密钥 + 双方公钥)。没扫到码的连接第一帧就解不开，发送方断开它继续等。AES-GCM 帧的随机数 = 方向 + 帧序号，重放/调换顺序都解不开。协议和二维码编解码都有单元测试。
+- 两种连法：同一个 Wi-Fi；或发送方开临时热点（`LocalOnlyHotspot`，热点名/密码系统随机生成，写进二维码）。接收方安卓 10+ 用 `WifiNetworkSpecifier` 自动连（系统弹窗确认），失败或更老的系统让用户手动连。连接时 socket 绑定到对应的 Wi-Fi 网络（该 Wi-Fi 没外网时系统默认走流量）。
+- 权限：接收方相机；开热点在安卓 13+ 要 `NEARBY_WIFI_DEVICES`（neverForLocation），12 及以下要精确位置 + 系统「位置信息」开关打开。都由 `TransferSheet` 在调用前申请。
+- 扫码：CameraX 取景 + ZXing 识别（`data/Qr.kt`、`ui/sheets/QrViews.kt`），不依赖谷歌服务（国产手机多数没有）。二维码必须黑白，是唯一不从 `LocalPalette` 取色的地方。
 - 另一种方式：导出后用系统分享（FileProvider，`cache/share/`）。
 
 ## 液态玻璃

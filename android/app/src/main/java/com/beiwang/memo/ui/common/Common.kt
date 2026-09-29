@@ -35,6 +35,16 @@ fun appVersion(context: android.content.Context): String =
 
 @Volatile private var cachedVersion: String? = null
 
+/** 从 Compose 拿到的 Context 往上找 Activity（设置窗口亮度、屏幕常亮、相机绑定生命周期要用） */
+fun android.content.Context.findActivity(): android.app.Activity? {
+    var c: android.content.Context? = this
+    while (c is android.content.ContextWrapper) {
+        if (c is android.app.Activity) return c
+        c = c.baseContext
+    }
+    return null
+}
+
 /** 系统震动反馈（跟随系统的触感设置，不需要权限） */
 class Haptics(private val view: View) {
     fun tick() = view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
