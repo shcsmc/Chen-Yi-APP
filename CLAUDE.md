@@ -24,6 +24,7 @@
   - `glass/`：液态玻璃（`Glass.kt` 通用玻璃和按钮、`LiquidTabBar.kt` 底栏透镜、`Motion.kt` 弹簧/高光、`SharedShaders.kt` 共用着色器、`Gestures.kt`）
   - `home/` 列表和底部控件；`editor/` 编辑页和看大图；`sheets/` 底部面板（设置、回收站、分类、移动、解锁）
   - `icons/Icons.kt`：全部图标（手写 SVG 路径，24×24）；`theme/`：配色（只由深浅 + 强调色推出）、背景
+- 应用图标：`res/drawable/ic_launcher_background.xml`（纸色）+ `ic_launcher_foreground.xml`（朱砂 C + 墨蓝 Y 花押，单色主题图标也用它），由 `tools/icon/make_icon.py` 生成（要改颜色、粗细就改脚本重新跑，别手改 XML）；设置底部的 `AppMark` 用的是同一套图层
 
 ## 不要动的东西（除非用户明确要求）
 
