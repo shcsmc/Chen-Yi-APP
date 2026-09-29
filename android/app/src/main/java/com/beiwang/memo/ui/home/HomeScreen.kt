@@ -5,10 +5,12 @@ import android.content.ClipboardManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -312,52 +314,58 @@ fun HomeChrome(app: AppState, snap: Snapshot, cats: List<Category>, cat: Categor
             }
         }
 
-        Column(
+        // 底部：平时是「搜索行 + 底栏」，多选时整组换成操作栏。两组叠在同一个位置各自淡入淡出 ——
+        // 不能排在同一个 Column 里：退场的那组动画没结束前还占着位置，进场的这组会先出现在它上面，等它消失再往下一跳
+        Box(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(start = 14.dp, end = 14.dp, bottom = HomeMetrics.barBottom),
-            horizontalAlignment = Alignment.End,
         ) {
             AnimatedVisibility(
                 visible = !app.selecting,
-                enter = fadeIn() + slideInVertically { it / 2 },
-                exit = fadeOut() + slideOutVertically { it / 2 },
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = fadeIn() + slideInVertically { it / 3 },
+                exit = fadeOut() + slideOutVertically { it / 3 },
             ) {
-                SearchRow(app, cat)
-            }
-            AnimatedVisibility(
-                visible = !app.selecting && !app.searching,
-                enter = fadeIn() + slideInVertically { it },
-                exit = fadeOut() + slideOutVertically { it },
-            ) {
-                Column {
-                    Spacer(Modifier.height(HomeMetrics.gap))
-                    LiquidTabBar(
-                        categories = cats,
-                        selected = selectedIndex,
-                        onSelect = { i ->
-                            val c = cats.getOrNull(i) ?: return@LiquidTabBar
-                            if (c.id != store.prefs.currentCat.value) {
-                                app.quickAdd = false
-                                store.prefs.setCurrentCat(c.id)
-                            }
-                        },
-                        onAdd = {
-                            if (store.canAddCategory) app.sheet = Sheet.CategoryEdit(null)
-                            else { haptics.reject(); app.showToast("最多 ${Ids.MAX_CATEGORIES} 个分类") }
-                        },
-                        backdrop = backdrop,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                Column(horizontalAlignment = Alignment.End) {
+                    SearchRow(app, cat)
+                    // 搜索时底栏收起：高度跟着动画一起收，搜索行顺着落到底部，不会等底栏消失后猛地一跳
+                    AnimatedVisibility(
+                        visible = !app.searching,
+                        enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
+                        exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
+                    ) {
+                        Column {
+                            Spacer(Modifier.height(HomeMetrics.gap))
+                            LiquidTabBar(
+                                categories = cats,
+                                selected = selectedIndex,
+                                onSelect = { i ->
+                                    val c = cats.getOrNull(i) ?: return@LiquidTabBar
+                                    if (c.id != store.prefs.currentCat.value) {
+                                        app.quickAdd = false
+                                        store.prefs.setCurrentCat(c.id)
+                                    }
+                                },
+                                onAdd = {
+                                    if (store.canAddCategory) app.sheet = Sheet.CategoryEdit(null)
+                                    else { haptics.reject(); app.showToast("最多 ${Ids.MAX_CATEGORIES} 个分类") }
+                                },
+                                backdrop = backdrop,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
                 }
             }
             AnimatedVisibility(
                 visible = app.selecting,
-                enter = fadeIn() + slideInVertically { it },
-                exit = fadeOut() + slideOutVertically { it },
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = fadeIn() + slideInVertically { it / 2 },
+                exit = fadeOut() + slideOutVertically { it / 2 },
             ) {
                 SelectionBar(app, snap, cat)
             }
@@ -470,7 +478,7 @@ private fun SelectionBar(app: AppState, snap: Snapshot, cat: Category) {
     val pal = LocalPalette.current
     val store = app.store
     val haptics = rememberHaptics()
-    Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         GlassIconButton(Icons.close, onClick = { app.clearSelection() }, size = 52.dp)
         SelectAction(Icons.selectAll, "全选", pal.ink, Modifier.weight(1f)) {
             app.selectAll(visibleNotes(snap, cat.id, app.query.trim()).map { it.id })

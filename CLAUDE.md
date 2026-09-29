@@ -57,7 +57,7 @@
 
 - 界面分两层：**取景层**（`Root` 里 `layerBackdrop` 的那个 Box：背景、列表、编辑区、大图）和**悬浮层**（按钮、底栏、面板、提示）。玻璃只能放在悬浮层，从 `LocalBackdrop` 取背景。
 - 所有按钮用 `GlassButton` / `GlassIconButton`，大面板用 `GlassPanel`（它把自己导出成新的 `LocalBackdrop`，面板里的按钮折射的是面板本身）。
-- 取景层里（列表行上）的按钮用 `GlassChip`：取景层拿不到背景，只做玻璃表面、棱边高光和按压形变，不模糊不折射，列表里每行一个也不卡。
+- 取景层里（列表行上）拿不到背景，不能放玻璃：条目的复制键用强调色小胶囊（和底栏「＋」、搜索框 ✕ 同一种样子）。
 - 底栏（`LiquidTabBar`）三层：可见的玻璃条 → 看不见的强调色副本（只录成图层）→ 透镜（背景 = 页面 + 强调色副本）。所以透镜盖到哪，哪里的图标就变强调色。
 - 折射需要安卓 13+（RuntimeShader），模糊需要 12+；更低版本自动退化成接近实色的面板（`Palette.glassFallback`）。
 - 颜色一律从 `LocalPalette` 取，不要在界面里写死颜色。
@@ -72,7 +72,7 @@
 ## 构建与验证
 
 - 推送到 `main` → `.github/workflows/android.yml` 打正式签名 APK，发布 Release `v1.0.<提交数>` 和固定名 `beiwang.apk`（用户手机从 `releases/latest/download/beiwang.apk` 下载）。**用户说「打包」之前不要合并到 main。**
-- 推送到 `claude/**` 分支 → `.github/workflows/dev.yml`：编译 + 单元测试 + 打「备忘测试」包（包名 `com.beiwang.memo.dev`，和正式版并排安装，不发 Release），在该次运行的 Artifacts 里下载。
+- 推送到 `claude/**` 分支 → `.github/workflows/dev.yml`：编译 + 单元测试 + 打「辰Yi记测试」包（包名 `com.beiwang.memo.dev`，和正式版并排安装，不发 Release），在该次运行的 Artifacts 里下载。
 - 构建类型：`release`（R8 开启，Compose 不开 R8 会明显卡）、`dev`（同 release，改包名和应用名）、`debug`。
 - 云端会话里 `dl.google.com`（安卓 SDK、Google Maven）可能被网络策略拦截，无法本地编译，只能靠分支 CI 编译检查。
 - 迁移脚本可以在本地验证：用 HTTP 服务打开 `legacy/index.html` 造数据，再在同源打开 `migrate.html`（注入假的 `MigrateBridge`）检查输出。

@@ -6,6 +6,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -40,16 +41,17 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.beiwang.memo.data.Crypt
 import com.beiwang.memo.data.Images
 import com.beiwang.memo.data.Note
 import com.beiwang.memo.ui.common.Txt
+import com.beiwang.memo.ui.common.rememberHaptics
 import com.beiwang.memo.ui.common.rememberImage
 import com.beiwang.memo.ui.common.snippet
 import com.beiwang.memo.ui.common.whenText
-import com.beiwang.memo.ui.glass.GlassChip
 import com.beiwang.memo.ui.glass.Icon
 import com.beiwang.memo.ui.icons.Icons
 import com.beiwang.memo.ui.theme.LocalPalette
@@ -157,7 +159,7 @@ fun MemoRow(
             .border(if (selected) 2.dp else 0.5.dp, if (selected) pal.accent else pal.hairline, RowShape)
             .combinedClickable(source, indication = null, onLongClick = onLongClick, onClick = onClick)
             // 有复制键时上下留白收一点，行高和以前差不多
-            .padding(start = 16.dp, end = if (chip) 7.dp else 16.dp, top = if (chip) 8.dp else 14.dp, bottom = if (chip) 8.dp else 14.dp),
+            .padding(start = 16.dp, end = if (chip) 9.dp else 16.dp, top = if (chip) 10.dp else 14.dp, bottom = if (chip) 10.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selecting) {
@@ -178,10 +180,27 @@ fun MemoRow(
         Txt(whenText(note.updated), Type.small, color = pal.ink3)
         if (chip && onCopy != null) {
             Spacer(Modifier.width(10.dp))
-            GlassChip(onClick = onCopy, shape = RoundedRectangle(11.dp), modifier = Modifier.size(width = 42.dp, height = 34.dp)) {
-                Icon(Icons.copy, pal.ink2, Modifier.size(18.dp))
-            }
+            CopyPill(onCopy)
         }
+    }
+}
+
+/** 条目右边的复制键：强调色小胶囊 + 反白图标，和底栏「＋」、搜索框的 ✕ 一个样子 */
+@Composable
+private fun CopyPill(onClick: () -> Unit) {
+    val pal = LocalPalette.current
+    val haptics = rememberHaptics()
+    val source = remember { MutableInteractionSource() }
+    Box(
+        Modifier
+            .scale(pressScale(source))
+            .size(width = 44.dp, height = 30.dp)
+            .clip(Capsule())
+            .background(pal.accent)
+            .clickable(source, indication = null, role = Role.Button) { haptics.tick(); onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.copy, pal.onAccent, Modifier.size(17.dp))
     }
 }
 
