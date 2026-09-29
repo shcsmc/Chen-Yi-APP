@@ -22,6 +22,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        app.ui.onForeground()
+    }
+
     override fun onPause() {
         // 切到后台前把正在编辑的内容落盘
         app.ui.saveEditor()

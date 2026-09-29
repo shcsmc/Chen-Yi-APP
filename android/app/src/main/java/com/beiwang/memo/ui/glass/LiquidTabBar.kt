@@ -58,9 +58,7 @@ import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.isRenderEffectSupported
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
@@ -162,7 +160,7 @@ fun LiquidTabBar(
                     effects = {
                         vibrancy()
                         blur(8.dp.toPx())
-                        lens(24.dp.toPx(), 24.dp.toPx())
+                        sharedLens(24.dp.toPx(), 24.dp.toPx())
                     },
                     layerBlock = {
                         val scale = lerp(1f, 1f + 16.dp.toPx() / size.width, drag.pressProgress)
@@ -198,9 +196,9 @@ fun LiquidTabBar(
                             val p = drag.pressProgress
                             vibrancy()
                             blur(8.dp.toPx())
-                            lens(24.dp.toPx() * p, 24.dp.toPx() * p)
+                            sharedLens(24.dp.toPx() * p, 24.dp.toPx() * p)
                         },
-                        highlight = { Highlight.Default.copy(alpha = drag.pressProgress) },
+                        highlight = { GlassHighlight.copy(alpha = drag.pressProgress) },
                         onDrawSurface = { drawRect(containerColor) },
                     )
                     .height(56.dp)
@@ -246,9 +244,9 @@ fun LiquidTabBar(
                     shape = { Capsule() },
                     effects = {
                         val p = drag.pressProgress
-                        lens(10.dp.toPx() * p, 14.dp.toPx() * p, chromaticAberration = true)
+                        sharedLens(10.dp.toPx() * p, 14.dp.toPx() * p, chromaticAberration = true)
                     },
-                    highlight = { Highlight.Default.copy(alpha = drag.pressProgress) },
+                    highlight = { GlassHighlight.copy(alpha = drag.pressProgress) },
                     shadow = { Shadow(alpha = drag.pressProgress) },
                     innerShadow = { InnerShadow(radius = 8.dp * drag.pressProgress, alpha = drag.pressProgress) },
                     layerBlock = {

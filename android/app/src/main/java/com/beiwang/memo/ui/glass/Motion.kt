@@ -1,11 +1,11 @@
 /*
  * 改编自 Kyant0/AndroidLiquidGlass 的示例代码（catalog/utils/DampedDragAnimation.kt、
  * InteractiveHighlight.kt），Apache License 2.0，Copyright Kyant。
- * 改动：去掉内置手势（由调用方接自己的手势）、帧等待改用 withFrameNanos、高光着色器直接用系统 RuntimeShader。
+ * 改动：去掉内置手势（由调用方接自己的手势）、帧等待改用 withFrameNanos、高光着色器直接用系统 RuntimeShader
+ * 并且全进程共用一个（见 SharedShaders.kt）。
  */
 package com.beiwang.memo.ui.glass
 
-import android.graphics.RuntimeShader
 import android.os.Build
 import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
@@ -139,26 +139,12 @@ class InteractiveHighlight(
     val pressProgress: Float get() = pressAnim.value
     val offset: Offset get() = positionAnim.value - start
 
-    private val shader: RuntimeShader? =
-        if (Build.VERSION.SDK_INT >= 33) RuntimeShader(
-            """
-            uniform float2 size;
-            layout(color) uniform half4 color;
-            uniform float radius;
-            uniform float2 position;
-            half4 main(float2 coord) {
-                float dist = distance(coord, position);
-                float intensity = smoothstep(radius, radius * 0.5, dist);
-                return color * intensity;
-            }
-            """.trimIndent()
-        ) else null
-
     val modifier: Modifier = Modifier.drawWithContent {
         val p = pressAnim.value
         if (p > 0f) {
-            val s = shader
-            if (s != null && Build.VERSION.SDK_INT >= 33) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                // 着色器只在真的按下时才拿（第一次按下时编译，之后全应用共用）
+                val s = pressGlowShader()
                 drawRect(Color.White.copy(0.08f * p), blendMode = BlendMode.Plus)
                 val pos = position(size, positionAnim.value)
                 s.setFloatUniform("size", size.width, size.height)

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -56,6 +57,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -64,9 +66,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.beiwang.memo.data.Category
 import com.beiwang.memo.data.Ids
@@ -85,8 +91,22 @@ import com.beiwang.memo.ui.glass.LocalBackdrop
 import com.beiwang.memo.ui.icons.Icons
 import com.beiwang.memo.ui.theme.LocalPalette
 import com.beiwang.memo.ui.theme.Type
+import com.kyant.shapes.Capsule
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
+
+/** 首页底部那组悬浮控件（搜索行 + 底栏）的尺寸；列表底部留白、提示条位置都按它算 */
+object HomeMetrics {
+    /** 底栏离屏幕底部（导航条上沿）的距离 */
+    val barBottom = 18.dp
+    val barHeight = 64.dp
+    /** 搜索行和底栏之间 */
+    val gap = 10.dp
+    val searchHeight = 48.dp
+    /** 整组控件的高度（不含导航条） */
+    val chromeHeight: Dp get() = barBottom + barHeight + gap + searchHeight
+}
 
 /** 当前分类里要显示的内容：置顶在前，其余按修改时间倒序；有关键词时只留命中的 */
 fun visibleNotes(snap: Snapshot, catId: String, query: String): List<Note> =
@@ -115,7 +135,7 @@ fun HomeContent(app: AppState, snap: Snapshot, cat: Category) {
     val padding = PaddingValues(
         start = 12.dp, end = 12.dp,
         top = bars.calculateTopPadding() + 8.dp,
-        bottom = bars.calculateBottomPadding() + 64.dp + 8.dp + 48.dp + 10.dp + 28.dp,
+        bottom = bars.calculateBottomPadding() + HomeMetrics.chromeHeight + 28.dp,
     )
     val onClick: (Note) -> Unit = { n -> if (app.selecting) app.toggleSelect(n.id) else app.open(n) }
     val onLong: (Note) -> Unit = { n -> haptics.longPress(); app.toggleSelect(n.id) }
@@ -287,7 +307,7 @@ fun HomeChrome(app: AppState, snap: Snapshot, cats: List<Category>, cat: Categor
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+                .padding(start = 14.dp, end = 14.dp, bottom = HomeMetrics.barBottom),
             horizontalAlignment = Alignment.End,
         ) {
             AnimatedVisibility(
@@ -303,7 +323,7 @@ fun HomeChrome(app: AppState, snap: Snapshot, cats: List<Category>, cat: Categor
                 exit = fadeOut() + slideOutVertically { it },
             ) {
                 Column {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(HomeMetrics.gap))
                     LiquidTabBar(
                         categories = cats,
                         selected = selectedIndex,
@@ -334,13 +354,19 @@ fun HomeChrome(app: AppState, snap: Snapshot, cats: List<Category>, cat: Categor
     }
 }
 
-/** 搜索胶囊 + 新建按钮；点搜索后胶囊展开成整行 */
+/**
+ * 搜索胶囊 + 新建按钮；点搜索后胶囊展开成整行。
+ * 退出搜索：点右边的 ✕（清空关键词）；收起键盘、按返回、点输入框以外的地方（见 Root）只收起，关键词留着，
+ * 列表仍是搜索结果，胶囊里显示关键词和 ✕，再按一次返回或点 ✕ 才清空。
+ */
 @Composable
 private fun SearchRow(app: AppState, cat: Category) {
     val pal = LocalPalette.current
     val field = rememberTextFieldState(app.query)
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime
     LaunchedEffect(field) {
         snapshotFlow { field.text.toString() }.distinctUntilChanged().drop(1).collect { app.query = it }
     }
@@ -349,6 +375,10 @@ private fun SearchRow(app: AppState, cat: Category) {
         if (app.searching) {
             withFrameNanos { }          // 等输入框挂上再要焦点
             runCatching { focus.requestFocus() }
+            // 键盘弹出来之后又收起了（返回键、键盘上的收起/搜索键）：退出搜索
+            snapshotFlow { ime.getBottom(density) > 0 }.first { it }
+            snapshotFlow { ime.getBottom(density) > 0 }.first { !it }
+            app.searching = false
         } else {
             focusManager.clearFocus()
         }
@@ -356,14 +386,17 @@ private fun SearchRow(app: AppState, cat: Category) {
 
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val full = maxWidth
-        val collapsedWidth = 132.dp
+        val collapsedWidth = if (app.query.isEmpty()) 132.dp else 176.dp
         val width by animateDpAsState(if (app.searching) full else collapsedWidth, spring(0.8f, 380f), label = "search")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
             GlassButton(
                 onClick = { app.searching = true },
-                modifier = Modifier.width(width).height(48.dp),
+                modifier = Modifier
+                    .width(width)
+                    .height(HomeMetrics.searchHeight)
+                    .onGloballyPositioned { app.searchBounds = it.boundsInRoot() },
             ) {
-                Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.search, pal.ink3, Modifier.size(19.dp))
                     Spacer(Modifier.width(8.dp))
                     // 收起时只放文字：输入框即使 enabled=false 也会吃掉点击，胶囊就点不开了
@@ -390,21 +423,33 @@ private fun SearchRow(app: AppState, cat: Category) {
                             modifier = Modifier.weight(1f), maxLines = 1,
                         )
                     }
-                    if (app.searching) {
-                        Box(
-                            Modifier
-                                .size(36.dp)
-                                .clickable(interactionSource = null, indication = null) { app.query = ""; app.searching = false },
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(Icons.close, pal.ink2, Modifier.size(18.dp)) }
+                    if (app.searching || app.query.isNotEmpty()) {
+                        Spacer(Modifier.width(6.dp))
+                        ClearButton { app.query = ""; app.searching = false }
                     }
                 }
             }
             if (!app.searching) {
                 Spacer(Modifier.width(10.dp))
-                GlassIconButton(Icons.compose, onClick = { app.create() }, size = 48.dp, iconSize = 23.dp, iconTint = pal.accent)
+                GlassIconButton(Icons.compose, onClick = { app.create() }, size = HomeMetrics.searchHeight, iconSize = 23.dp, iconTint = pal.accent)
             }
         }
+    }
+}
+
+/** 搜索胶囊里的 ✕：强调色小胶囊，和底栏「＋」一个做法 */
+@Composable
+private fun ClearButton(onClick: () -> Unit) {
+    val pal = LocalPalette.current
+    Box(
+        Modifier
+            .size(width = 44.dp, height = 34.dp)
+            .clip(Capsule())
+            .background(pal.accent)
+            .clickable(interactionSource = null, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.close, pal.onAccent, Modifier.size(17.dp))
     }
 }
 

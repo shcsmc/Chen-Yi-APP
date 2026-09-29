@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Rect
 import com.beiwang.memo.data.Ids
 import com.beiwang.memo.data.Layout
 import com.beiwang.memo.data.Note
@@ -40,6 +41,8 @@ sealed interface VaultFlow {
     data object ChangeNew : VaultFlow
     /** 别的设备传来的保险箱内容：输入原设备的保险箱密码 */
     data class Foreign(val id: String) : VaultFlow
+    /** 在设置里开启指纹：先验证密码（指纹要包住内容密钥，锁着时拿不到密钥） */
+    data object EnableBio : VaultFlow
 }
 
 class ToastSpec(val message: String, val undo: (() -> Unit)?, val id: Long = System.nanoTime())
@@ -87,6 +90,8 @@ class AppState(val store: Store) {
 
     var query by mutableStateOf("")
     var searching by mutableStateOf(false)
+    /** 搜索胶囊在屏幕上的位置：搜索时点它以外的地方就退出搜索（Root 里判断） */
+    var searchBounds = Rect.Zero
 
     var selection by mutableStateOf<Set<String>>(emptySet())
         private set
@@ -115,6 +120,9 @@ class AppState(val store: Store) {
     var vaultFlow by mutableStateOf<VaultFlow?>(null)
     /** 在外面选了笔记「移到保险箱」但保险箱还锁着：解锁后再移 */
     var pendingVaultMove by mutableStateOf<Set<String>>(emptySet())
+
+    /** 手机有没有可用的指纹（设置打开时在后台问一次系统） */
+    var bioAvailable by mutableStateOf(false)
 
     /** 旧数据迁移进度：null = 没在搬；否则 (已处理, 总数) */
     var migrating by mutableStateOf<Pair<Int, Int>?>(null)
@@ -265,8 +273,15 @@ class AppState(val store: Store) {
         }
     }
 
-    /** 马上要跳到系统界面（选图片、选文件）拿结果：这一次离开前台不上锁 */
+    /**
+     * 马上要跳到系统界面（选图片、选文件）拿结果：这一次离开前台不上锁。
+     * 回到前台时清掉（[onForeground]）：有的系统界面是半屏的，不会触发离开前台，标记不能留到下一次。
+     */
     var expectingExternal = false
+
+    fun onForeground() {
+        expectingExternal = false
+    }
 
     /** App 切到后台：保险箱立刻上锁（界面停在密码盘，回来要重新解锁） */
     fun onBackground() {
@@ -338,7 +353,9 @@ class AppState(val store: Store) {
             selecting -> clearSelection()
             vaultOpen -> closeVault()
             quickAdd -> quickAdd = false
-            searching || query.isNotEmpty() -> { searching = false; query = "" }
+            // 第一下收起搜索框（关键词留着，列表仍是搜索结果），第二下清空关键词
+            searching -> searching = false
+            query.isNotEmpty() -> query = ""
             else -> return false
         }
         return true

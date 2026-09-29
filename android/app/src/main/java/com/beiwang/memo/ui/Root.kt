@@ -13,6 +13,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +28,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.beiwang.memo.data.Background
@@ -37,6 +41,7 @@ import com.beiwang.memo.ui.editor.ImageViewerContent
 import com.beiwang.memo.ui.glass.LocalBackdrop
 import com.beiwang.memo.ui.home.HomeChrome
 import com.beiwang.memo.ui.home.HomeContent
+import com.beiwang.memo.ui.home.HomeMetrics
 import com.beiwang.memo.ui.sheets.BottomSheet
 import com.beiwang.memo.ui.sheets.CategorySheet
 import com.beiwang.memo.ui.sheets.MoveOutSheet
@@ -83,7 +88,7 @@ fun Root(app: AppState) {
 
     CompositionLocalProvider(LocalPalette provides pal) {
         val backdrop = rememberLayerBackdrop()
-        Box(Modifier.fillMaxSize().background(pal.base)) {
+        Box(Modifier.fillMaxSize().background(pal.base).exitSearchOnOutsideTap(app)) {
             // ---------- 取景层 ----------
             Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
                 Wallpaper(bg, store.background)
@@ -129,7 +134,7 @@ fun Root(app: AppState) {
                 }
                 VaultGate(app)
                 SheetHost(app, snap)
-                ToastHost(app, bottomGap = if (app.editor != null || app.viewer != null) 24.dp else (64 + 8 + 48 + 10 + 18).dp)
+                ToastHost(app, bottomGap = if (app.editor != null || app.viewer != null) 24.dp else HomeMetrics.chromeHeight + 18.dp)
                 DialogHost(app)
                 MigrationOverlay(app.migrating)
             }
@@ -152,6 +157,17 @@ private fun SheetHost(app: AppState, snap: Snapshot) {
             is Sheet.Transfer -> key(s.sending) { TransferSheet(app, s.sending) }
             null -> Unit
         }
+    }
+}
+
+/**
+ * 搜索时手指落在搜索胶囊以外的任何地方：收起搜索。只看不拦 —— 点到的卡片照样打开，列表照样滚。
+ * 挂在最外层，所以取景层（列表）和悬浮层的点击都能看到。
+ */
+private fun Modifier.exitSearchOnOutsideTap(app: AppState): Modifier = pointerInput(app) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        if (app.searching && !app.searchBounds.contains(down.position)) app.searching = false
     }
 }
 

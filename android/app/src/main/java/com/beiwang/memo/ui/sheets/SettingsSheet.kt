@@ -3,10 +3,12 @@ package com.beiwang.memo.ui.sheets
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -21,17 +23,21 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,8 +45,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.beiwang.memo.data.Backup
@@ -68,29 +77,39 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Calendar
+import androidx.compose.animation.core.snap as snapSpec
 
-/** 设置里的各个模块（首页是模块卡片，点进去是各自的页面） */
-private enum class Page { Home, Vault, Look, Categories, Transfer, Backup }
+/** 设置里的各个模块（首页是模块卡片，点进去是各自的页面；外观、回收站、双指新建在首页直接操作） */
+private enum class Page { Home, Vault, Categories, Transfer, Backup }
 
 private val TileShape = RoundedRectangle(22.dp)
+private val MiniShape = RoundedRectangle(18.dp)
 
 @Composable
 fun SettingsSheet(app: AppState, snap: Snapshot) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
     var page by remember { mutableStateOf(Page.Home) }
+    // 面板高度固定成首页的高度：切页时玻璃面板不再每帧改变大小。
+    // 面板每变一次大小，背后的模糊和折射就要按新尺寸整块重算、重新分配离屏缓冲 —— 这是切页掉帧的主因。
+    var homeHeight by remember { mutableIntStateOf(0) }
+    // 指纹硬件是系统调用，放后台问一次；不要在切页的第一帧里问
+    LaunchedEffect(Unit) { app.bioAvailable = withContext(Dispatchers.Default) { Biometric.available(context) } }
     AnimatedContent(
         targetState = page,
+        modifier = Modifier.heightIn(min = with(density) { homeHeight.toDp() }),
         transitionSpec = {
             val forward = targetState != Page.Home
             (slideInHorizontally(spring(0.9f, 500f)) { if (forward) it / 4 else -it / 4 } + fadeIn()) togetherWith
-                (slideOutHorizontally(spring(0.9f, 500f)) { if (forward) -it / 4 else it / 4 } + fadeOut())
+                (slideOutHorizontally(spring(0.9f, 500f)) { if (forward) -it / 4 else it / 4 } + fadeOut()) using
+                SizeTransform(clip = false) { _, _ -> snapSpec() }
         },
         label = "settings",
     ) { p ->
-        Column {
+        Column(if (p == Page.Home) Modifier.onSizeChanged { if (it.height > homeHeight) homeHeight = it.height } else Modifier) {
             when (p) {
                 Page.Home -> HomePage(app, snap) { page = it }
                 Page.Vault -> VaultPage(app) { page = Page.Home }
-                Page.Look -> LookPage(app) { page = Page.Home }
                 Page.Categories -> CategoriesPage(app, snap) { page = Page.Home }
                 Page.Transfer -> TransferPage(app) { page = Page.Home }
                 Page.Backup -> BackupPage(app, snap) { page = Page.Home }
@@ -111,6 +130,7 @@ private fun HomePage(app: AppState, snap: Snapshot, go: (Page) -> Unit) {
     val configured by store.vault.configured.collectAsState()
     val bio by store.vault.bioEnabled.collectAsState()
     val lock by store.prefs.legacyLock.collectAsState()
+    val pickBg = rememberBackgroundPicker(app)
 
     val live = snap.notes.count { !it.inTrash && !it.vault }
     val inVault = snap.notes.count { !it.inTrash && it.vault }
@@ -130,7 +150,16 @@ private fun HomePage(app: AppState, snap: Snapshot, go: (Page) -> Unit) {
     )
     Spacer(Modifier.height(10.dp))
     TileRow(
-        { Tile(Icons.palette, "外观", if (bg.custom) "自定义背景" else "默认背景", modifier = it) { go(Page.Look) } },
+        {
+            // 外观只有「换背景」一件事：点一下直接打开相册；自定义过的，右上角多一个「恢复默认」
+            Tile(
+                Icons.palette, "外观", "点一下换背景", modifier = it,
+                corner = if (bg.custom) ({ RestoreBackground(app) }) else null,
+            ) {
+                app.expectingExternal = true
+                pickBg.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
+        },
         { Tile(Icons.grid, "分类", "${snap.categories.size} 个", modifier = it) { go(Page.Categories) } },
     )
     Spacer(Modifier.height(10.dp))
@@ -139,17 +168,18 @@ private fun HomePage(app: AppState, snap: Snapshot, go: (Page) -> Unit) {
         { Tile(Icons.export, "备份", "导出 / 导入文件", modifier = it) { go(Page.Backup) } },
     )
     Spacer(Modifier.height(10.dp))
+    // 不常用的两个：小一号
     TileRow(
-        { Tile(Icons.trash, "回收站", if (trashed == 0) "空" else "$trashed 条", modifier = it) { app.sheet = Sheet.Trash } },
+        { MiniTile(Icons.trash, "回收站", if (trashed == 0) "空" else "$trashed 条", modifier = it) { app.sheet = Sheet.Trash } },
         {
-            Tile(Icons.hand, "双指新建", if (twoFinger) "已开启" else "已关闭", on = twoFinger, modifier = it) {
+            MiniTile(Icons.hand, "双指新建", if (twoFinger) "已开启" else "已关闭", on = twoFinger, modifier = it) {
                 store.prefs.setTwoFinger(!twoFinger)
             }
         },
     )
     if (!store.prefs.legacyDone || (encrypted > 0 && lock != null)) {
         Spacer(Modifier.height(10.dp))
-        Tile(Icons.restore, "旧版数据", if (!store.prefs.legacyDone) "还没搬完" else "$encrypted 条加密备忘待解开",
+        MiniTile(Icons.restore, "旧版数据", if (!store.prefs.legacyDone) "还没搬完" else "$encrypted 条加密备忘待解开",
             modifier = Modifier.fillMaxWidth()) { go(Page.Backup) }
     }
 
@@ -157,6 +187,50 @@ private fun HomePage(app: AppState, snap: Snapshot, go: (Page) -> Unit) {
         Txt("共 $live 条" + (if (inVault > 0) " · 保险箱 $inVault 条" else ""), Type.small, color = pal.ink3)
         Spacer(Modifier.height(2.dp))
         Txt("备忘 ${appVersion(context)}", Type.small, color = pal.ink3)
+    }
+}
+
+/** 从相册选背景：算出强调色和深浅后整体换掉 */
+@Composable
+private fun rememberBackgroundPicker(app: AppState): ManagedActivityResultLauncher<PickVisualMediaRequest, Uri?> {
+    val store = app.store
+    return rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        app.showToast("处理中…")
+        store.scope.launch {
+            val next = withContext(Dispatchers.IO) { store.background.setFromUri(uri, store.prefs.bg.value) }
+            if (next == null) app.showToast("这张图读不了") else {
+                store.prefs.setBg(next)
+                app.showToast("背景已更换，强调色已跟随")
+            }
+        }
+    }
+}
+
+/** 外观卡片右上角：恢复默认背景（会删掉自定义的图，先确认） */
+@Composable
+private fun RestoreBackground(app: AppState) {
+    val pal = LocalPalette.current
+    val store = app.store
+    Box(
+        Modifier
+            .size(30.dp)
+            .clip(Capsule())
+            .background(pal.cardPressed)
+            .clickable(interactionSource = null, indication = null) {
+                app.dialog = DialogSpec(
+                    title = "恢复默认背景？",
+                    message = "自定义的背景图会被删掉，强调色和深浅色回到默认。",
+                    confirm = "恢复",
+                    onConfirm = {
+                        store.prefs.setBg(store.background.clear(store.prefs.bg.value))
+                        app.showToast("已恢复默认背景")
+                    },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.restore, pal.ink2, Modifier.size(16.dp))
     }
 }
 
@@ -168,7 +242,43 @@ private fun TileRow(a: @Composable (Modifier) -> Unit, b: @Composable (Modifier)
     }
 }
 
-/** 模块卡片：左上图标（强调色圆底），下面标题 + 状态 */
+/** 卡片底：半透明底色 + 细边，按下时微缩、底色加深 */
+@Composable
+private fun TileSurface(
+    shape: Shape,
+    modifier: Modifier,
+    onClick: () -> Unit,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val pal = LocalPalette.current
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val s by animateFloatAsState(if (pressed) 0.97f else 1f, spring(0.6f, 600f), label = "tile")
+    Box(
+        modifier
+            .scale(s)
+            .clip(shape)
+            .background(if (pressed) pal.cardPressed else pal.card)
+            .border(0.5.dp, pal.hairline, shape)
+            .clickable(source, indication = null, onClick = onClick),
+        content = content,
+    )
+}
+
+/** 模块图标：强调色圆底；[on] = false（关着的开关）时变灰 */
+@Composable
+private fun TileIcon(icon: ImageVector, size: androidx.compose.ui.unit.Dp, on: Boolean?) {
+    val pal = LocalPalette.current
+    val off = on == false
+    Box(
+        Modifier.size(size).clip(Capsule()).background(if (off) pal.ink3.copy(alpha = 0.18f) else pal.accent.copy(alpha = 0.16f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, if (off) pal.ink3 else pal.accent, Modifier.size(size * 0.56f))
+    }
+}
+
+/** 模块卡片：左上图标，下面标题 + 状态；[big] 是横排的大卡片（保险箱）；[corner] 放在右上角 */
 @Composable
 private fun Tile(
     icon: ImageVector,
@@ -177,31 +287,14 @@ private fun Tile(
     modifier: Modifier = Modifier,
     big: Boolean = false,
     on: Boolean? = null,
+    corner: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val pal = LocalPalette.current
-    val source = remember { MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.97f else 1f, spring(0.6f, 600f), label = "tile")
-    val iconBg = if (on == false) pal.ink3.copy(alpha = 0.18f) else pal.accent.copy(alpha = 0.16f)
-    val iconTint = if (on == false) pal.ink3 else pal.accent
-    val body: @Composable () -> Unit = {
-        Box(Modifier.size(if (big) 48.dp else 38.dp).clip(Capsule()).background(iconBg), contentAlignment = Alignment.Center) {
-            Icon(icon, iconTint, Modifier.size(if (big) 27.dp else 21.dp))
-        }
-    }
-    Box(
-        modifier
-            .scale(s)
-            .clip(TileShape)
-            .background(if (pressed) pal.cardPressed else pal.card)
-            .border(0.5.dp, pal.hairline, TileShape)
-            .clickable(source, indication = null, onClick = onClick)
-            .padding(16.dp),
-    ) {
+    TileSurface(TileShape, modifier, onClick) {
         if (big) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                body()
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                TileIcon(icon, 48.dp, on)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Txt(title, Type.title.copy(fontSize = Type.cardTitle.fontSize * 1.15f))
@@ -211,11 +304,36 @@ private fun Tile(
                 Icon(Icons.chevron, pal.ink3, Modifier.size(18.dp))
             }
         } else {
-            Column {
-                body()
+            Column(Modifier.padding(16.dp)) {
+                TileIcon(icon, 38.dp, on)
                 Spacer(Modifier.height(12.dp))
                 Txt(title, Type.cardTitle, maxLines = 1)
                 Spacer(Modifier.height(2.dp))
+                Txt(sub, Type.small, color = pal.ink3, maxLines = 1)
+            }
+            if (corner != null) Box(Modifier.align(Alignment.TopEnd).padding(10.dp)) { corner() }
+        }
+    }
+}
+
+/** 小一号的横排卡片：图标 + 标题/状态，高度只有普通卡片的一半 */
+@Composable
+private fun MiniTile(
+    icon: ImageVector,
+    title: String,
+    sub: String,
+    modifier: Modifier = Modifier,
+    on: Boolean? = null,
+    onClick: () -> Unit,
+) {
+    val pal = LocalPalette.current
+    TileSurface(MiniShape, modifier, onClick) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            TileIcon(icon, 32.dp, on)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Txt(title, Type.label, maxLines = 1)
+                Spacer(Modifier.height(1.dp))
                 Txt(sub, Type.small, color = pal.ink3, maxLines = 1)
             }
         }
@@ -251,7 +369,6 @@ private fun VaultPage(app: AppState, back: () -> Unit) {
     val configured by store.vault.configured.collectAsState()
     val unlocked by store.vault.unlocked.collectAsState()
     val bio by store.vault.bioEnabled.collectAsState()
-    val bioAvailable = remember { Biometric.available(context) }
 
     SubTitle("保险箱", back)
     GlassButton(tint = pal.accent, onClick = { app.openVault() }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
@@ -268,12 +385,19 @@ private fun VaultPage(app: AppState, back: () -> Unit) {
                 app.sheet = null
                 app.vaultFlow = if (unlocked) VaultFlow.ChangeNew else VaultFlow.ChangeVerify
             })
-            if (bioAvailable) {
+            if (app.bioAvailable) {
                 SettingRow(Icons.fingerprint, "指纹解锁", onClick = {
                     when {
-                        bio -> store.vault.disableBiometric().also { app.showToast("指纹解锁已关闭") }
+                        bio -> {
+                            store.vault.disableBiometric()
+                            app.showToast("指纹解锁已关闭")
+                        }
                         unlocked -> enableBiometric(app, context)
-                        else -> app.showToast("先打开保险箱，再在这里开启指纹")
+                        // 开指纹要用内容密钥，锁着时先验证一次密码
+                        else -> {
+                            app.sheet = null
+                            app.vaultFlow = VaultFlow.EnableBio
+                        }
                     }
                 }) { Toggle(bio) }
             }
@@ -285,41 +409,6 @@ private fun VaultPage(app: AppState, back: () -> Unit) {
     )
     Hint("忘了密码就再也打不开，没有任何办法找回。")
     Hint("导出的备份文件和传到另一台手机的内容里，保险箱仍是加密的，只靠保险箱密码保护：备份文件请不要随便外传。")
-}
-
-// ============================== 外观 ==============================
-
-@Composable
-private fun LookPage(app: AppState, back: () -> Unit) {
-    val pal = LocalPalette.current
-    val store = app.store
-    val bg by store.prefs.bg.collectAsState()
-    val pickBg = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        app.showToast("处理中…")
-        store.scope.launch {
-            val next = withContext(Dispatchers.IO) { store.background.setFromUri(uri, store.prefs.bg.value) }
-            if (next == null) app.showToast("这张图读不了") else {
-                store.prefs.setBg(next)
-                app.showToast("背景已更换，强调色已跟随")
-            }
-        }
-    }
-    SubTitle("外观", back)
-    Block {
-        SettingRow(Icons.image, "从相册选择背景", onClick = {
-            pickBg.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-        }) {
-            Box(Modifier.size(18.dp).clip(Capsule()).background(pal.accent).border(1.dp, pal.hairline, Capsule()))
-        }
-        if (bg.custom) {
-            SettingRow(Icons.restore, "恢复默认背景", onClick = {
-                store.prefs.setBg(store.background.clear(store.prefs.bg.value))
-                app.showToast("已恢复默认背景")
-            })
-        }
-    }
-    Hint("强调色和深浅色会跟着背景自动变化；默认背景的深浅跟随系统。")
 }
 
 // ============================== 分类 ==============================

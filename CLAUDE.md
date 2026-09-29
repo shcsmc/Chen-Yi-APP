@@ -19,7 +19,7 @@
 - `legacy/` —— 旧网页版数据迁移：`LegacyMigration.kt`（隐藏 WebView 读 IndexedDB）、`LegacyCrypto.kt`（旧图案锁密文解密）；配套页面 `assets/legacy/migrate.html`
 - `ui/`
   - `Root.kt`：界面骨架（取景层 + 悬浮层，见下）；`AppState.kt`：不入库的界面状态（编辑中、选中、面板、提示）
-  - `glass/`：液态玻璃（`Glass.kt` 通用玻璃和按钮、`LiquidTabBar.kt` 底栏透镜、`Motion.kt` 弹簧/高光、`Gestures.kt`）
+  - `glass/`：液态玻璃（`Glass.kt` 通用玻璃和按钮、`LiquidTabBar.kt` 底栏透镜、`Motion.kt` 弹簧/高光、`SharedShaders.kt` 共用着色器、`Gestures.kt`）
   - `home/` 列表和底部控件；`editor/` 编辑页和看大图；`sheets/` 底部面板（设置、回收站、分类、移动、解锁）
   - `icons/Icons.kt`：全部图标（手写 SVG 路径，24×24）；`theme/`：配色（只由深浅 + 强调色推出）、背景
 
@@ -54,6 +54,13 @@
 - 底栏（`LiquidTabBar`）三层：可见的玻璃条 → 看不见的强调色副本（只录成图层）→ 透镜（背景 = 页面 + 强调色副本）。所以透镜盖到哪，哪里的图标就变强调色。
 - 折射需要安卓 13+（RuntimeShader），模糊需要 12+；更低版本自动退化成接近实色的面板（`Palette.glassFallback`）。
 - 颜色一律从 `LocalPalette` 取，不要在界面里写死颜色。
+- 折射和棱边高光用 `sharedLens()` / `GlassHighlight`（`SharedShaders.kt`），不要直接用库里的 `lens()` / `Highlight.Default`：库版每个玻璃件各编译一份着色器，一排按钮同时出现时会卡一下。
+- 大玻璃面板不要做逐帧改变大小的动画（每帧都要按新尺寸重算模糊和折射）：设置面板切页时高度固定为首页高度，只做平移/淡入淡出。
+- 首页底部控件的尺寸集中在 `HomeMetrics`（底栏离底部距离、搜索行高度等），列表留白和提示条位置都按它算。
+
+## 搜索
+
+- 点搜索胶囊展开；收起键盘、按返回、点胶囊以外的地方（`Root` 里 `exitSearchOnOutsideTap`）只收起，关键词保留、列表仍是结果；点 ✕ 或再按一次返回才清空。
 
 ## 构建与验证
 

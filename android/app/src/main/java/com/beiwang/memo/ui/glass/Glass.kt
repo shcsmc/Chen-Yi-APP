@@ -32,7 +32,6 @@ import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.isRenderEffectSupported
@@ -69,7 +68,7 @@ fun Modifier.glass(
     refraction: Dp = 12.dp,
     depth: Dp = 20.dp,
     shadow: Boolean = true,
-    highlight: Highlight? = Highlight.Default,
+    highlight: Highlight? = GlassHighlight,
     exported: LayerBackdrop? = null,
     layerBlock: (GraphicsLayerScope.() -> Unit)? = null,
 ): Modifier {
@@ -88,7 +87,7 @@ fun Modifier.glass(
         effects = {
             vibrancy()
             blur(blurRadius.toPx())
-            if (refraction > 0.dp) lens(refraction.toPx(), depth.toPx())
+            if (refraction > 0.dp) sharedLens(refraction.toPx(), depth.toPx())
         },
         highlight = if (highlight != null) ({ highlight }) else null,
         shadow = if (shadow) ({ GlassShadow }) else null,

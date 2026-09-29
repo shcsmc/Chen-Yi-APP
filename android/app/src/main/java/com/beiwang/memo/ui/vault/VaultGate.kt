@@ -60,10 +60,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-private enum class Gate { Setup, Unlock, ChangeVerify, ChangeNew, Foreign }
+private enum class Gate { Setup, Unlock, ChangeVerify, ChangeNew, Foreign, EnableBio }
 
 /**
- * 保险箱的密码界面（悬浮层，整屏）：设置、解锁、改密码、导入别的设备的保险箱内容，
+ * 保险箱的密码界面（悬浮层，整屏）：设置、解锁、改密码、导入别的设备的保险箱内容、开启指纹，
  * 都走这一个界面，只是标题和提交后做的事不同。
  */
 @Composable
@@ -76,6 +76,7 @@ fun VaultGate(app: AppState) {
         flow is VaultFlow.ChangeVerify -> Gate.ChangeVerify
         flow is VaultFlow.ChangeNew -> Gate.ChangeNew
         flow is VaultFlow.Foreign -> Gate.Foreign
+        flow is VaultFlow.EnableBio -> Gate.EnableBio
         app.vaultOpen && !configured -> Gate.Setup
         app.vaultOpen && !unlocked -> Gate.Unlock
         else -> null
@@ -116,10 +117,10 @@ private fun GateScreen(app: AppState, gate: Gate, flow: VaultFlow?) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val shake = remember { Animatable(0f) }
 
-    // 冷却倒计时
+    // 冷却倒计时（凡是要验证现有密码的界面都算）
     LaunchedEffect(Unit) {
         val left = vault.coolingSeconds()
-        if (gate == Gate.Unlock && left > 0) coolUntil = System.currentTimeMillis() + left * 1000
+        if (gate in VERIFY_GATES && left > 0) coolUntil = System.currentTimeMillis() + left * 1000
     }
     LaunchedEffect(coolUntil) {
         while (coolUntil > System.currentTimeMillis()) {
@@ -147,10 +148,12 @@ private fun GateScreen(app: AppState, gate: Gate, flow: VaultFlow?) {
         Gate.ChangeVerify -> "先输入现在的密码"
         Gate.ChangeNew -> if (first == null) "输入新密码" else "再输一次确认"
         Gate.Foreign -> "输入原设备的保险箱密码"
+        Gate.EnableBio -> "输入保险箱密码"
     }
     val hint = when (gate) {
         Gate.Setup -> if (first == null) "忘了密码就再也打不开，请记牢" else null
         Gate.Foreign -> "这些内容来自另一台手机的保险箱，输入那边的密码后并入本机保险箱"
+        Gate.EnableBio -> "验证密码后开启指纹解锁"
         else -> null
     }
 
@@ -188,7 +191,7 @@ private fun GateScreen(app: AppState, gate: Gate, flow: VaultFlow?) {
                     }
                 }
             }
-            Gate.Unlock, Gate.ChangeVerify -> {
+            Gate.Unlock, Gate.ChangeVerify, Gate.EnableBio -> {
                 busy = true
                 message = "正在验证…"
                 scope.launch {
@@ -198,7 +201,15 @@ private fun GateScreen(app: AppState, gate: Gate, flow: VaultFlow?) {
                         is Vault.Attempt.Ok -> {
                             message = null
                             haptics.confirm()
-                            if (gate == Gate.ChangeVerify) app.vaultFlow = VaultFlow.ChangeNew else app.afterVaultUnlocked()
+                            when (gate) {
+                                Gate.ChangeVerify -> app.vaultFlow = VaultFlow.ChangeNew
+                                Gate.EnableBio -> {
+                                    // 密钥只在弹指纹框这一会儿留在内存里，开完（或取消）就锁回去
+                                    app.vaultFlow = null
+                                    enableBiometric(app, context, relock = !app.vaultOpen)
+                                }
+                                else -> app.afterVaultUnlocked()
+                            }
                         }
                         is Vault.Attempt.Wrong -> fail("密码不对，还能试 ${r.left} 次")
                         is Vault.Attempt.Cooling -> {
@@ -245,7 +256,8 @@ private fun GateScreen(app: AppState, gate: Gate, flow: VaultFlow?) {
             onError = { msg -> message = msg },
         )
     }
-    val showBio = gate == Gate.Unlock && bioEnabled && Biometric.available(context)
+    val bioHardware = remember { Biometric.available(context) }   // 系统调用：只问一次，不要每按一个键都问
+    val showBio = gate == Gate.Unlock && bioEnabled && bioHardware
     LaunchedEffect(Unit) { if (showBio && vault.coolingSeconds() == 0L) startBio() }
     DisposableEffect(Unit) { onDispose { bioSignal?.cancel() } }
 
@@ -386,17 +398,27 @@ private fun offerBiometric(app: AppState, context: android.content.Context) {
     )
 }
 
-fun enableBiometric(app: AppState, context: android.content.Context) {
+/**
+ * 开启指纹（要求保险箱已解锁）。[relock] = true：是为了开指纹临时解锁的，结束后（成功、取消、出错）立刻锁回去。
+ */
+fun enableBiometric(app: AppState, context: android.content.Context, relock: Boolean = false) {
     val vault = app.store.vault
+    fun finish(toast: String?) {
+        if (relock) app.lockVault()
+        toast?.let { app.showToast(it) }
+    }
     val cipher = vault.cipherForEnableBiometric()
     if (cipher == null) {
-        app.showToast("这台手机不支持指纹解锁保险箱")
+        finish("这台手机不支持指纹解锁保险箱")
         return
     }
     Biometric.authenticate(
         context, cipher, "开启指纹解锁",
-        onSuccess = { c -> app.showToast(if (vault.finishEnableBiometric(c)) "指纹解锁已开启" else "开启失败") },
-        onCancel = {},
-        onError = { msg -> app.showToast("开启失败：$msg") },
+        onSuccess = { c -> finish(if (vault.finishEnableBiometric(c)) "指纹解锁已开启" else "开启失败") },
+        onCancel = { finish(null) },
+        onError = { msg -> finish("开启失败：$msg") },
     )
 }
+
+/** 这些界面要验证现有密码，连错会进冷却 */
+private val VERIFY_GATES = setOf(Gate.Unlock, Gate.ChangeVerify, Gate.EnableBio)

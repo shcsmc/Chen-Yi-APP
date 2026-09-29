@@ -28,9 +28,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 
-/** 版本号（versionName），显示在设置底部 */
+/** 版本号（versionName），显示在设置底部。查包信息是系统调用，进程内只查一次 */
 fun appVersion(context: android.content.Context): String =
-    runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: ""
+    cachedVersion ?: (runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "")
+        .also { cachedVersion = it }
+
+@Volatile private var cachedVersion: String? = null
 
 /** 系统震动反馈（跟随系统的触感设置，不需要权限） */
 class Haptics(private val view: View) {
