@@ -90,7 +90,7 @@ class TransferSession(context: Context, private val store: Store, val sending: B
         if (job != null) return
         _state.value = TransferState.Busy(if (useHotspot) "正在开启热点…" else "正在准备…")
         job = store.scope.launch(Dispatchers.IO) {
-            val file = File(tmp, "out-${System.currentTimeMillis()}.json")
+            val file = File(tmp, "out-${System.currentTimeMillis()}.${Backup.EXT}")
             try {
                 coroutineScope {
                     // 边显示二维码边在后台打包，对方连上时多半已经打好了
@@ -388,7 +388,7 @@ class TransferSession(context: Context, private val store: Store, val sending: B
         socket.soTimeout = 120_000             // 对方可能还在打包
         _state.value = TransferState.Progress("$peer 正在准备数据", 0, 1)
         val manifest = TransferProto.parseManifest(ch.readText()) ?: throw Problem("对方发来的清单读不懂")
-        val file = File(tmp, "in-${System.currentTimeMillis()}.json")
+        val file = File(tmp, "in-${System.currentTimeMillis()}.${Backup.EXT}")
         try {
             var got = 0L
             file.outputStream().buffered().use { out ->
@@ -406,7 +406,7 @@ class TransferSession(context: Context, private val store: Store, val sending: B
             val seen = r.added + r.updated + r.skipped
             val problems = buildList {
                 if (seen != manifest.notes) add("条数对不上：对方 ${manifest.notes} 条，收到 $seen 条")
-                if (r.failedImages > 0) add("${r.failedImages} 张图片读不了")
+                if (r.failedImages > 0) add("${r.failedImages} 个图片/视频/语音没收全")
             }
             val outcome = TransferProto.Outcome(
                 ok = problems.isEmpty(), added = r.added, updated = r.updated, skipped = r.skipped,

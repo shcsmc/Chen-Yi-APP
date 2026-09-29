@@ -2,19 +2,28 @@ package com.beiwang.memo.ui
 
 import android.content.Context
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
+import com.beiwang.memo.data.Blocks
 import com.beiwang.memo.data.Ids
 import com.beiwang.memo.data.Layout
 import com.beiwang.memo.data.Note
-import com.beiwang.memo.data.NoteImage
+import com.beiwang.memo.data.Media
 import com.beiwang.memo.data.Store
 import com.beiwang.memo.legacy.LegacyMigration
+import com.beiwang.memo.ui.editor.VideoPlayback
+import com.beiwang.memo.ui.editor.VoicePlayer
+import com.beiwang.memo.ui.editor.VoiceRecording
 import com.beiwang.memo.ui.theme.BgCrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -61,29 +70,105 @@ class DialogSpec(
     val onConfirm: () -> Unit,
 )
 
-/** 正在编辑的笔记：文字放在输入框状态里，停手 0.4 秒自动保存 */
+/** 编辑页里的一段：文字（一个输入框）或一组附件。key 是 [Blocks] 里的稳定标识 */
+@Stable
+sealed interface EditBlock {
+    val key: Long
+}
+
+@Stable
+class TextEdit(override val key: Long, text: String) : EditBlock {
+    val state = TextFieldState(text)
+    val focus = FocusRequester()
+    /** 最近一次排版结果（拖附件时找段落边界用） */
+    var layout: (() -> TextLayoutResult?)? = null
+    var coords: LayoutCoordinates? = null
+}
+
+@Stable
+class GroupEdit(override val key: Long, items: List<Media>) : EditBlock {
+    var items by mutableStateOf(items)
+    var coords: LayoutCoordinates? = null
+}
+
+/**
+ * 正在编辑的笔记：标题一个输入框；正文拆成「文字段 / 附件组」交替的序列（见 [Blocks]），每段文字一个输入框。
+ * 停手 0.4 秒自动保存：保存时再合回「纯文字正文 + 每个附件在正文里的位置」。
+ */
 @Stable
 class EditorSession(val base: Note, val layout: Layout, val isNew: Boolean, val vault: Boolean = false) {
     val id: String get() = base.id
     val title = TextFieldState(base.title)
-    val body = TextFieldState(base.body)
-    var images by mutableStateOf(base.images)
+    var blocks by mutableStateOf(build(Blocks.split(base.body, base.media), emptyMap()))
+        private set
     var pinned by mutableStateOf(base.pinned)
     /** 最近一次写盘的时间，用来闪一下「已保存」 */
     var savedAt by mutableLongStateOf(0L)
     /** 是否已经写进过数据库（新建但一个字没写的不入库） */
     var persisted = !isNew
+    /** 结构每变一次（插入、删除、挪动、改大小）+1：自动保存靠它知道附件变了 */
+    var revision by mutableIntStateOf(0)
+        private set
+    /** 最近有过光标的文字段：从工具条加附件时插在它的光标处 */
+    var lastFocused: TextEdit? = null
+    /** 选中的附件（显示拖角，底部工具条换成对齐/删除） */
+    var selected by mutableStateOf<String?>(null)
 
-    fun snapshot(now: Long): Note = base.copy(
-        title = title.text.toString(),
-        body = body.text.toString(),
-        images = images,
-        pinned = pinned,
-        updated = now,
-    )
+    val media: List<Media> get() = blocks.flatMap { if (it is GroupEdit) it.items else emptyList() }
 
-    fun sameAs(n: Note): Boolean =
-        n.title == title.text.toString() && n.body == body.text.toString() && n.images == images && n.pinned == pinned
+    fun pieces(): List<Blocks.Piece> = blocks.map { b ->
+        when (b) {
+            is TextEdit -> Blocks.Text(b.key, b.state.text.toString())
+            is GroupEdit -> Blocks.Group(b.key, b.items)
+        }
+    }
+
+    /** 换成新的序列：没动过的文字段沿用原来的输入框（光标、输入法都不断） */
+    fun apply(next: List<Blocks.Piece>) {
+        blocks = build(next, blocks.associateBy { it.key })
+        revision++
+    }
+
+    /** 插附件的位置：最近的光标处；从没点过正文就放文末 */
+    fun insertTarget(): Blocks.Target {
+        val t = lastFocused?.takeIf { f -> blocks.any { it === f } }
+            ?: return Blocks.end(pieces())
+        return Blocks.IntoText(t.key, t.state.selection.min)
+    }
+
+    /**
+     * 在光标处插入附件；之后「光标」挪到附件后面那段文字的开头，连着加几次会依次往下排。
+     * 不主动弹键盘：刚从相册回来，先让人看到加进来的东西。
+     */
+    fun insert(items: List<Media>) {
+        if (items.isEmpty()) return
+        apply(Blocks.insert(pieces(), insertTarget(), items))
+        val gi = blocks.indexOfFirst { it is GroupEdit && it.items.any { m -> m.id == items.last().id } }
+        (blocks.getOrNull(gi + 1) as? TextEdit)?.let { t ->
+            lastFocused = t
+            t.state.edit { selection = TextRange(0) }
+        }
+    }
+
+    fun snapshot(now: Long): Note {
+        val (body, media) = Blocks.join(pieces())
+        return base.copy(title = title.text.toString(), body = body, media = media, pinned = pinned, updated = now)
+    }
+
+    /** 和库里的一样吗（比标准形：旧数据里「文末」的附件位置是 -1，打开再关上不算改动） */
+    fun sameAs(n: Note): Boolean {
+        if (n.title != title.text.toString() || n.pinned != pinned) return false
+        return Blocks.canonical(n.body, n.media) == Blocks.join(pieces())
+    }
+
+    private fun build(pieces: List<Blocks.Piece>, old: Map<Long, EditBlock>): List<EditBlock> = pieces.map { p ->
+        when (p) {
+            is Blocks.Text -> (old[p.key] as? TextEdit)?.also {
+                if (it.state.text.toString() != p.text) it.state.setTextAndPlaceCursorAtEnd(p.text)
+            } ?: TextEdit(p.key, p.text)
+            is Blocks.Group -> (old[p.key] as? GroupEdit)?.also { it.items = p.items } ?: GroupEdit(p.key, p.items)
+        }
+    }
 }
 
 /**
@@ -104,15 +189,20 @@ class AppState(val store: Store) {
 
     var editor by mutableStateOf<EditorSession?>(null)
         private set
-    private var _viewer by mutableStateOf<NoteImage?>(null)
+    private var _viewer by mutableStateOf<Media?>(null)
     /** 正在看的大图；换图时旋转归零 */
-    var viewer: NoteImage?
+    var viewer: Media?
         get() = _viewer
         set(v) {
             _viewer = v
             viewerTurns = 0
         }
     var viewerTurns by mutableIntStateOf(0)
+
+    /** 看大图 / 看视频（按附件种类，Root 里决定用哪个界面） */
+    fun openViewer(m: Media) {
+        viewer = m
+    }
     var sheet by mutableStateOf<Sheet?>(null)
     var dialog by mutableStateOf<DialogSpec?>(null)
     var toast by mutableStateOf<ToastSpec?>(null)
@@ -121,6 +211,13 @@ class AppState(val store: Store) {
     var quickAdd by mutableStateOf(false)
     /** 换背景：选好图后的缩放裁剪页 */
     var bgCrop by mutableStateOf<BgCrop?>(null)
+
+    /** 编辑页里的语音条播放（同一时间只放一条） */
+    val voice = VoicePlayer(store)
+    /** 正在录音：编辑页底部换成录音条 */
+    var recording by mutableStateOf<VoiceRecording?>(null)
+    /** 正在看的视频：取景层放画面，悬浮层放按钮，共用这一个播放器（看视频的界面自己建、自己释放） */
+    var video by mutableStateOf<VideoPlayback?>(null)
 
     /** 保险箱界面开着（未解锁时显示密码盘） */
     var vaultOpen by mutableStateOf(false)
@@ -219,8 +316,36 @@ class AppState(val store: Store) {
         e.savedAt = System.currentTimeMillis()
     }
 
+    /**
+     * 结束录音，插到正在编辑的笔记的光标处。太短（不到半秒）或出错时提示。
+     * 直接在主线程做：普通笔记只是挪个文件；保险箱里的要加密，语音不大（一分钟约 0.5MB），也很快。
+     */
+    fun finishRecording() {
+        val r = recording ?: return
+        recording = null
+        val dur = r.stop()
+        val e = editor
+        if (dur == null) {
+            showToast("太短了，没录上")
+            return
+        }
+        if (e == null || (e.vault && !store.vault.unlocked.value)) {
+            store.clips.recordingFile(r.id).delete()
+            return
+        }
+        val m = store.clips.adoptRecording(r.id, dur, if (e.vault) store.vault::sealFile else null)
+        if (m == null) showToast("录音没存上") else e.insert(listOf(m))
+    }
+
+    fun cancelRecording() {
+        recording?.cancel()
+        recording = null
+    }
+
     /** 关闭编辑页：先落盘；一个字都没有的笔记直接丢掉（不进回收站，旧版会留下「空白笔记」） */
     fun closeEditor() {
+        finishRecording()
+        voice.stop()
         val e = editor ?: return
         val n = e.snapshot(System.currentTimeMillis())
         if (n.isBlank) {
@@ -283,9 +408,12 @@ class AppState(val store: Store) {
     }
 
     fun lockVault() {
+        voice.stop()
         store.vault.lock()
         store.vault.clearCache()
         store.images.clearSealedCache()
+        // 保险箱里的录音录完就加密、删临时文件；这里再清一遍，万一哪次没删掉
+        if (recording == null) store.scope.launch(store.io) { store.clips.clearTemp() }
     }
 
     /** 解锁成功后：把在外面选好的笔记移进来 */
@@ -309,8 +437,11 @@ class AppState(val store: Store) {
         expectingExternal = false
     }
 
-    /** App 切到后台：保险箱立刻上锁（界面停在密码盘，回来要重新解锁） */
+    /** App 切到后台：录音收尾、停播放；保险箱立刻上锁（界面停在密码盘，回来要重新解锁） */
     fun onBackground() {
+        finishRecording()
+        voice.stop()
+        video?.pause()
         saveEditor()
         if (expectingExternal) {
             expectingExternal = false

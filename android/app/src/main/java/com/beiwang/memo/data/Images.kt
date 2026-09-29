@@ -37,24 +37,31 @@ class Images(context: Context) {
     fun sealedThumb(id: String) = File(dir, "${id}_t.vault")
 
     /** 从相册/文件导入；[seal] 非空时直接加密存（保险箱里加图）。读不了返回 null */
-    fun importUri(context: Context, uri: Uri, seal: Crypt? = null): NoteImage? = runCatching {
+    fun importUri(context: Context, uri: Uri, seal: Crypt? = null): Media? = runCatching {
         val bmp = decode(context, uri, FULL) ?: return null
         store(bmp, seal)
     }.getOrNull()
 
     /** 从备份或旧数据导入（JPEG/PNG/WebP 字节） */
-    fun importBytes(bytes: ByteArray): NoteImage? = runCatching {
+    fun importBytes(bytes: ByteArray): Media? = runCatching {
         val bmp = decode(bytes, FULL) ?: return null
         store(bmp, null)
     }.getOrNull()
 
     /** 导入别处传来的加密图片：原样存，不解密 */
-    fun importSealed(full: ByteArray, thumb: ByteArray?, w: Int, h: Int): NoteImage? = runCatching {
+    fun importSealed(full: ByteArray, thumb: ByteArray?, w: Int, h: Int): Media? = runCatching {
         val id = Ids.next()
         writeBytes(sealedFull(id), full)
         if (thumb != null) writeBytes(sealedThumb(id), thumb)
-        NoteImage(id, w, h)
+        Media(id, w, h)
     }.getOrNull()
+
+    /** 视频的缩略图（抽出来的一帧）：和图片的缩略图存在同一个地方，[seal] 非空时加密存 */
+    fun writeThumb(id: String, frame: Bitmap, seal: Crypt?) {
+        val small = opaque(scaleDown(frame, THUMB))
+        if (seal == null) writeJpeg(small, thumb(id), 82) else writeBytes(sealedThumb(id), seal(jpegBytes(small, 82)))
+        forget(id)
+    }
 
     fun delete(id: String) {
         full(id).delete()
@@ -162,7 +169,7 @@ class Images(context: Context) {
 
     // ---------- 内部 ----------
 
-    private fun store(src: Bitmap, seal: Crypt?): NoteImage {
+    private fun store(src: Bitmap, seal: Crypt?): Media {
         val id = Ids.next()
         val big = opaque(scaleDown(src, FULL))
         val small = scaleDown(big, THUMB)
@@ -173,7 +180,7 @@ class Images(context: Context) {
             writeBytes(sealedFull(id), seal(jpegBytes(big, 86)))
             writeBytes(sealedThumb(id), seal(jpegBytes(small, 82)))
         }
-        return NoteImage(id, big.width, big.height)
+        return Media(id, big.width, big.height)
     }
 
     companion object {

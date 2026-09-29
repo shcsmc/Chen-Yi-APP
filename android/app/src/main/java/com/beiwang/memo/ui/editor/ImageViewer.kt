@@ -26,7 +26,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import com.beiwang.memo.data.NoteImage
+import com.beiwang.memo.data.Media
 import com.beiwang.memo.ui.AppState
 import com.beiwang.memo.ui.common.rememberImage
 import com.beiwang.memo.ui.glass.GlassIconButton
@@ -38,7 +38,7 @@ import kotlinx.coroutines.launch
  * 先显示缩略图，原图解码好了再换上，打开不等待。
  */
 @Composable
-fun ImageViewerContent(app: AppState, image: NoteImage) {
+fun ImageViewerContent(app: AppState, image: Media) {
     val open = if (app.editor?.vault == true) app.store.vault::openBytes else null
     val full = rememberImage(app.store.images, image.id, thumb = false, open = open)
     val thumb = rememberImage(app.store.images, image.id, thumb = true, open = open)

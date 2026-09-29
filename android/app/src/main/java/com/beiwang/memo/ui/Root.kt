@@ -35,11 +35,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.beiwang.memo.data.Background
+import com.beiwang.memo.data.MediaKind
 import com.beiwang.memo.data.Snapshot
 import com.beiwang.memo.ui.editor.EditorChrome
 import com.beiwang.memo.ui.editor.EditorContent
 import com.beiwang.memo.ui.editor.ImageViewerChrome
 import com.beiwang.memo.ui.editor.ImageViewerContent
+import com.beiwang.memo.ui.editor.VideoViewerChrome
+import com.beiwang.memo.ui.editor.VideoViewerContent
 import com.beiwang.memo.ui.glass.LocalBackdrop
 import com.beiwang.memo.ui.home.HomeChrome
 import com.beiwang.memo.ui.home.HomeContent
@@ -87,7 +90,7 @@ fun Root(app: AppState) {
     val cat = cats.firstOrNull { it.id == currentId } ?: cats.firstOrNull()
     val editorHolder = remember { arrayOfNulls<EditorSession>(1) }
     app.editor?.let { editorHolder[0] = it }
-    val viewerHolder = remember { arrayOfNulls<com.beiwang.memo.data.NoteImage>(1) }
+    val viewerHolder = remember { arrayOfNulls<com.beiwang.memo.data.Media>(1) }
     app.viewer?.let { viewerHolder[0] = it }
     val editorProgress = animateFloatAsState(if (app.editor != null) 1f else 0f, spring(0.9f, 380f), label = "editor")
 
@@ -114,7 +117,7 @@ fun Root(app: AppState) {
                     }
                 }
                 AnimatedVisibility(app.viewer != null, enter = fadeIn(), exit = fadeOut()) {
-                    viewerHolder[0]?.let { ImageViewerContent(app, it) }
+                    viewerHolder[0]?.let { if (it.kind == MediaKind.Video) VideoViewerContent(app, it) else ImageViewerContent(app, it) }
                 }
                 // 换背景的缩放裁剪页：盖在最上面。用 AnimatedContent 而不是留一份引用：退场后大图就能回收
                 AnimatedContent(app.bgCrop, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "bgCrop") { c ->
@@ -142,7 +145,7 @@ fun Root(app: AppState) {
                     }
                 }
                 AnimatedVisibility(app.viewer != null, enter = fadeIn(), exit = fadeOut()) {
-                    ImageViewerChrome(app)
+                    if (viewerHolder[0]?.kind == MediaKind.Video) VideoViewerChrome(app) else ImageViewerChrome(app)
                 }
                 AnimatedVisibility(app.bgCrop != null, enter = fadeIn(), exit = fadeOut()) {
                     BgCropChrome(app)

@@ -213,7 +213,7 @@ fun ExportSheet(app: AppState, snap: Snapshot, share: Boolean) {
     val store = app.store
     var selected by remember { mutableStateOf(allNoteIds(snap)) }
 
-    val exportTo = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+    val exportTo = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(Backup.MIME)) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val ids = selected
         app.sheet = null
@@ -276,7 +276,7 @@ private fun exportToCache(context: Context, store: Store, ids: Set<String>): Fil
 private fun shareFile(context: Context, app: AppState, file: File) {
     val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
     val send = Intent(Intent.ACTION_SEND).apply {
-        type = "application/json"
+        type = Backup.MIME
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }

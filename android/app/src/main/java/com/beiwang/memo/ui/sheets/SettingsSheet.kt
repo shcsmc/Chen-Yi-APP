@@ -501,10 +501,10 @@ private fun BackupPage(app: AppState, snap: Snapshot, back: () -> Unit) {
         SettingRow(Icons.export, "导出备份文件", sub = "$total 条，可挑选", onClick = { app.sheet = Sheet.Export(share = false) })
         SettingRow(Icons.import, "导入备份文件", sub = "按时间合并", onClick = {
             app.expectingExternal = true
-            importFrom.launch(arrayOf("application/json", "text/plain", "*/*"))
+            importFrom.launch(arrayOf(Backup.MIME, "application/json", "application/octet-stream", "text/plain", "*/*"))
         })
     }
-    Hint("导入按每条的修改时间合并：本机更新的保留本机，备份更新的用备份，不会重复。导入后会核对条数和图片，有问题会直接告诉你。")
+    Hint("导入按每条的修改时间合并：本机更新的保留本机，备份更新的用备份，不会重复。导入后会核对条数和附件，有问题会直接告诉你。以前导出的 .json 备份也能导入。")
 
     if (!store.prefs.legacyDone || (encrypted > 0 && lock != null)) {
         SectionTitle("旧版数据")
@@ -516,7 +516,7 @@ private fun BackupPage(app: AppState, snap: Snapshot, back: () -> Unit) {
                 })
                 SettingRow(Icons.export, "把旧版数据导出成文件", onClick = {
                     app.expectingExternal = true
-                    legacyExport.launch(backupName("旧版备忘备份"))
+                    legacyExport.launch(backupName("旧版备忘备份", "json"))
                 })
             }
             if (encrypted > 0 && lock != null) {
@@ -526,9 +526,10 @@ private fun BackupPage(app: AppState, snap: Snapshot, back: () -> Unit) {
     }
 }
 
-fun backupName(prefix: String): String {
+/** 备份文件名：前缀-年月日.扩展名（本版备份是 zip；旧版数据导出仍是 json） */
+fun backupName(prefix: String, ext: String = Backup.EXT): String {
     val c = Calendar.getInstance()
-    return "%s-%04d%02d%02d.json".format(prefix, c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+    return "%s-%04d%02d%02d.%s".format(prefix, c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH), ext)
 }
 
 /** 导入并生成结果对话框：成功时列出新增/更新/跳过，有问题明确指出 */
@@ -548,7 +549,7 @@ fun importResultDialog(result: Result<Backup.Result>): DialogSpec = result.fold(
         val lines = buildList {
             add("新增 ${r.added} 条，更新 ${r.updated} 条")
             if (r.skipped > 0) add("跳过 ${r.skipped} 条（本机已是相同或更新的版本）")
-            if (r.failedImages > 0) add("有 ${r.failedImages} 张图片读不了，没有导入")
+            if (r.failedImages > 0) add("有 ${r.failedImages} 个图片/视频/语音读不了，没有导入")
         }
         DialogSpec(
             title = if (r.failedImages > 0) "导入完成，但有问题" else "导入完成",

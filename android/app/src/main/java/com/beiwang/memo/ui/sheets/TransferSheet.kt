@@ -140,7 +140,7 @@ fun TransferSheet(app: AppState, snap: Snapshot, sending: Boolean) {
             )
             Spacer(Modifier.height(10.dp))
             Line(
-                (if (sending) "对方收到 ${s.notes} 条、${s.images} 张图：" else "收到 ${s.notes} 条、${s.images} 张图：") +
+                (if (sending) "对方收到 ${s.notes} 条（含 ${s.images} 个附件）：" else "收到 ${s.notes} 条（含 ${s.images} 个附件）：") +
                     "新增 ${o.added}，更新 ${o.updated}" + (if (o.skipped > 0) "，跳过 ${o.skipped}（已是相同或更新的版本）" else ""),
                 center = true,
             )

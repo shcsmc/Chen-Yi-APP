@@ -86,6 +86,17 @@ object Icons {
     /** 收起键盘：键盘 + 下箭头 */
     val keyboardHide: ImageVector by lazy { icon(S("M5 4.2h14a2 2 0 0 1 2 2v7.3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6.2a2 2 0 0 1 2-2zM8.6 12.1h6.8M6.9 8.3h.01M9.6 8.3h.01M12.3 8.3h.01M15 8.3h.01M17.4 8.3h.01M9.7 18.5l2.3 2.2 2.3-2.2")) }
 
+    // ---------- 附件 ----------
+    val video: ImageVector by lazy { icon(S("M5 6.8h8.6a2.2 2.2 0 0 1 2.2 2.2v6a2.2 2.2 0 0 1-2.2 2.2H5A2.2 2.2 0 0 1 2.8 15V9A2.2 2.2 0 0 1 5 6.8zM15.8 10.6l4.5-2.7a.6.6 0 0 1 .9.5v7.2a.6.6 0 0 1-.9.5l-4.5-2.7")) }
+    val mic: ImageVector by lazy { icon(S("M12 3.6a2.9 2.9 0 0 1 2.9 2.9v5.2a2.9 2.9 0 0 1-5.8 0V6.5A2.9 2.9 0 0 1 12 3.6zM6.4 11.4a5.6 5.6 0 0 0 11.2 0M12 17v3.4M9.2 20.4h5.6")) }
+    val play: ImageVector by lazy { icon(FS("M8.2 5.8v12.4a.9.9 0 0 0 1.4.8l9.7-6.2a.9.9 0 0 0 0-1.6L9.6 5a.9.9 0 0 0-1.4.8z")) }
+    val pause: ImageVector by lazy { icon(FS("M7.4 5.4h2.6v13.2H7.4zM14 5.4h2.6v13.2H14z")) }
+    /** 拖角：斜向的双箭头 */
+    val resize: ImageVector by lazy { icon(S("M8.5 15.5l7-7M11 8.5h4.5V13M13 15.5H8.5V11")) }
+    val alignLeft: ImageVector by lazy { icon(S("M4.5 6h15M4.5 10h9M4.5 14h15M4.5 18h9")) }
+    val alignCenter: ImageVector by lazy { icon(S("M4.5 6h15M7.5 10h9M4.5 14h15M7.5 18h9")) }
+    val alignRight: ImageVector by lazy { icon(S("M4.5 6h15M10.5 10h9M4.5 14h15M10.5 18h9")) }
+
     private class Part(val style: Int, val d: String)
 
     @Suppress("FunctionName") private fun F(d: String) = Part(0, d)

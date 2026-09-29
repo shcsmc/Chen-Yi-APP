@@ -52,7 +52,7 @@ fun TrashSheet(app: AppState, snap: Snapshot) {
             val catName = if (n.vault) "保险箱" else snap.category(n.cat)?.name ?: "已删除的分类"
             val line = if (n.vault) "🔒 保险箱内容（已加密）" else (n.title.ifBlank { if (n.encrypted) "已加密的备忘" else n.body })
                 .trim().lineSequence().firstOrNull()
-                .orEmpty().ifEmpty { if (n.images.isNotEmpty()) "${n.images.size} 张图片" else "空白" }
+                .orEmpty().ifEmpty { if (n.media.isNotEmpty()) "${n.media.size} 个图片/视频/语音" else "空白" }
             SettingRow(null, line, onClick = null) {
                 Column(Modifier.padding(start = 8.dp)) {
                     Txt("$catName · ${whenText(n.deletedAt)}", Type.small, color = pal.ink3, maxLines = 1)

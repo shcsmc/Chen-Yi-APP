@@ -9,20 +9,23 @@
 ## 结构（`android/app/src/main/java/com/beiwang/memo/`）
 
 - `data/` —— 数据层，不含界面代码
-  - `Model.kt`：Category / Note / NoteImage / Snapshot；内置分类 id `note`、`memo`（沿用旧版 type）；只有「笔记」不能删（无家可归的内容都回到它）；分类上限 4 个（底栏加「＋」共 5 格）
-  - `Db.kt`：SQLite（表 categories / notes / images）
+  - `Model.kt`：Category / Note / Media（附件：图片、视频、语音）/ Snapshot；内置分类 id `note`、`memo`（沿用旧版 type）；只有「笔记」不能删（无家可归的内容都回到它）；分类上限 4 个（底栏加「＋」共 5 格）
+  - `Db.kt`：SQLite（表 categories / notes / images）。附件表仍叫 images（第 3 版加了 kind/dur/at/width/align/size/mime）
+  - `Blocks.kt`：图文混排（见下「附件」），纯算法，有单元测试
   - `Store.kt`：**唯一的数据入口**。内存快照是界面的唯一数据源，改动先换快照、再排进单线程 IO 队列写库
-  - `Images.kt`：图片文件（原图 ≤2048 + 缩略图 ≤480，`files/img/`），启动时清理没人引用的图片
+  - `Images.kt`：图片文件（原图 ≤2048 + 缩略图 ≤480，`files/img/`）；视频的封面（抽一帧）也存这里当缩略图；启动时清理没人引用的
+  - `Clips.kt`：视频、语音文件（`files/media/`，原文件原样存，不转码）；录音先录到 `cache/rec/`
+  - `StreamCrypto.kt`：保险箱里大文件的分块加密（能随机读，边解边播），有单元测试
   - `Background.kt`：自定义背景（`files/bg.jpg`），设背景时算出强调色和深浅；选图后先进缩放裁剪页（`ui/theme/BackgroundCrop.kt`），屏幕上看到的范围就是存下来的背景
   - `Prefs.kt`：SharedPreferences（当前分类、背景、双指手势、编辑页字号、旧数据迁移状态）
-  - `Backup.kt`：导出/导入 JSON（流式；v4 本版格式，也能导入旧版 v3 备份）；导出返回（条数，图片数）供核对；导出可只带选中的笔记（`ids`），分类/保险箱头/图片只带用到的
+  - `Backup.kt`：备份（流式）。v5 本版是 zip（`backup.json` + 附件原文件，视频再大也不整个读进内存）；也能导入旧的 v4/v3 JSON。导出返回（条数，附件数）供核对；可只带选中的笔记（`ids`），分类/保险箱头/附件只带用到的。手机间传输用的也是这个格式
   - `Vault.kt` / `VaultCrypto.kt`：保险箱（见下）
   - `Transfer.kt` / `TransferSession.kt` / `Qr.kt`：两台手机扫码直传（见下）
 - `legacy/` —— 旧网页版数据迁移：`LegacyMigration.kt`（隐藏 WebView 读 IndexedDB）、`LegacyCrypto.kt`（旧图案锁密文解密）；配套页面 `assets/legacy/migrate.html`
 - `ui/`
   - `Root.kt`：界面骨架（取景层 + 悬浮层，见下）；`AppState.kt`：不入库的界面状态（编辑中、选中、面板、提示）
   - `glass/`：液态玻璃（`Glass.kt` 通用玻璃和按钮、`LiquidTabBar.kt` 底栏透镜、`Motion.kt` 弹簧/高光、`SharedShaders.kt` 共用着色器、`Gestures.kt`）
-  - `home/` 列表和底部控件；`editor/` 编辑页和看大图；`sheets/` 底部面板（设置、回收站、分类、移动、解锁）
+  - `home/` 列表和底部控件；`editor/` 编辑页（`EditorScreen` 编辑区和工具条、`MediaViews` 附件的显示/拖动/改大小、`Players` 录音和播放、`VideoViewer` 看视频、`ImageViewer` 看大图）；`sheets/` 底部面板（设置、回收站、分类、移动、解锁）
   - `icons/Icons.kt`：全部图标（手写 SVG 路径，24×24）；`theme/`：配色（只由深浅 + 强调色推出）、背景
 - 应用图标：`res/drawable/ic_launcher_background.xml`（纸色）+ `ic_launcher_foreground.xml`（朱砂 C + 墨蓝 Y 花押，单色主题图标也用它），由 `tools/icon/make_icon.py` 生成（要改颜色、粗细就改脚本重新跑，别手改 XML）；设置底部的 `AppMark` 用的是同一套图层
 
@@ -35,9 +38,18 @@
 - **保险箱密钥**：内容密钥只在解锁后的内存里；本机存的便携头必须用安全芯片设备密钥再包一层（`Vault.save`），不能改成明文存便携头 —— 那样拷走文件就能离线暴力猜 6 位数字。不要加任何「找回密码」后门。
 - **旧数据迁移**：旧网页版数据在 WebView 的 IndexedDB（源 `https://appassets.androidplatform.net`，库 `memo-db`）。迁移只读不删；`migrate.html` 必须继续从这个源加载，WebView 的数据目录不能改（不要设 `setDataDirectorySuffix`）。
 
+## 附件（图片、视频、语音）与图文混排
+
+- 正文 `Note.body` 永远是纯文字（搜索、预览、复制直接用），**不要往正文里塞标记**。附件的位置记在附件自己身上：`Media.at` = 正文里第几个字符之前（-1 = 文末，旧数据的图片都是这样）。
+- `Blocks` 负责「正文 + 位置」↔ 编辑时的「文字段 / 附件组」交替序列：合的时候每组附件占一个换行（删掉附件文字不变），同一位置的几个附件是一组，按各自宽度（`Media.width`，占正文宽度的百分比）从左往右排、排满换行；对齐（`align`）整组一样。
+- 编辑页每段文字一个输入框（`TextEdit`），每组附件一个 `GroupEdit`；结构操作（插入、删除、挪动、改宽度、对齐）都走 `Blocks` 的纯函数再 `EditorSession.apply`，没动过的输入框原样保留（光标不断）。判断「有没有改动」比标准形（`Blocks.canonical`），旧数据打开再关上不算改动。
+- 交互：点图片看大图、点视频全屏播放、点语音条播放/暂停；长按任何附件拖到别的段落之间或别的附件旁边；选中后拖右下角改大小（吸附 1/4、1/3、1/2…）。附件只在卡片式分类的编辑页能加（条目式只有 Aa）。
+- 视频按原文件存（不压缩），超过 500MB 先确认；封面取 1 秒处的一帧。录音 AAC 单声道 64kbps，最长 30 分钟。
+
 ## 保险箱
 
-- 笔记 `vault=true` 时 title/body 是 `v2:` 密文，图片是 `id.vault` / `id_t.vault` 加密文件；`vaultKey` 非空表示来自别的设备、还没用原密码转换。
+- 笔记 `vault=true` 时 title/body 是 `v2:` 密文，图片是 `id.vault` / `id_t.vault` 加密文件（整个文件一次加密），视频/语音是 `media/id.vclip`（`StreamCrypto` 分块加密，播放时用 `Vault.reader` 边解边读，明文不落盘）；`vaultKey` 非空表示来自别的设备、还没用原密码转换。
+- 保险箱笔记里录音：先录到 `cache/rec/`（明文），录完立刻加密进 `media/`、删临时文件；上锁和启动时都会再清一遍 `cache/rec/`。
 - 密码（`pin:123456` / `pattern:0-1-2-5`）→ PBKDF2-SHA256（21 万次）→ 包住内容密钥 = 便携头；本机再用 Keystore 设备密钥包一层。指纹 = 另一把需强生物识别的 Keystore 密钥包内容密钥。
 - 离开保险箱、App `onStop` 立刻上锁（`AppState.onBackground`）；跳去系统选图/选文件前设 `expectingExternal = true`，否则会把自己锁掉。
 - 改保险箱数据的协程用 `store.scope`（进程级），不要用界面的 `rememberCoroutineScope`：面板关掉会取消协程，加密到一半内存和数据库会对不上。

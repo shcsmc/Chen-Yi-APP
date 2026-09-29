@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.beiwang.memo.data.Crypt
 import com.beiwang.memo.data.Images
+import com.beiwang.memo.data.MediaKind
 import com.beiwang.memo.data.Note
 import com.beiwang.memo.ui.common.Txt
 import com.beiwang.memo.ui.common.rememberHaptics
@@ -49,6 +50,7 @@ import com.beiwang.memo.ui.common.rememberImage
 import com.beiwang.memo.ui.common.snippet
 import com.beiwang.memo.ui.common.whenText
 import com.beiwang.memo.ui.common.pressScale
+import com.beiwang.memo.ui.editor.durationText
 import com.beiwang.memo.ui.glass.Icon
 import com.beiwang.memo.ui.icons.Icons
 import com.beiwang.memo.ui.theme.LocalPalette
@@ -83,7 +85,9 @@ fun NoteCard(
             .border(if (selected) 2.dp else 0.5.dp, if (selected) pal.accent else pal.hairline, CardShape)
             .combinedClickable(source, indication = null, onLongClick = onLongClick, onClick = onClick),
     ) {
-        val cover = note.images.firstOrNull()
+        // 封面：第一张图片或视频（视频用它抽出来的那一帧，带 ▶ 和时长）
+        val visuals = note.media.filter { it.isVisual }
+        val cover = visuals.firstOrNull()
         if (cover != null) {
             Box {
                 val bmp = rememberImage(images, cover.id, thumb = true, open = open)
@@ -93,9 +97,20 @@ fun NoteCard(
                 } else {
                     Box(Modifier.fillMaxWidth().aspectRatio(ratio).background(pal.cardPressed))
                 }
-                if (note.images.size > 1) {
+                if (cover.kind == MediaKind.Video) {
+                    Box(
+                        Modifier.align(Alignment.Center).size(38.dp).clip(Capsule()).background(Color.Black.copy(alpha = 0.42f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.play, Color.White, Modifier.size(20.dp)) }
+                }
+                val badge = when {
+                    visuals.size > 1 -> if (visuals.any { it.kind == MediaKind.Video }) "${visuals.size} 个" else "${visuals.size} 张"
+                    cover.kind == MediaKind.Video && cover.dur > 0 -> durationText(cover.dur)
+                    else -> null
+                }
+                if (badge != null) {
                     Txt(
-                        "${note.images.size} 张", Type.small, color = Color.White,
+                        badge, Type.small, color = Color.White,
                         modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
                             .background(Color.Black.copy(alpha = 0.42f), Capsule()).padding(horizontal = 8.dp, vertical = 2.dp),
                     )
@@ -111,11 +126,18 @@ fun NoteCard(
             when {
                 note.encrypted -> Txt("已加密 · 点开画图案解开", Type.cardBody, color = pal.ink3)
                 body.isNotEmpty() -> Txt(snippet(body, keyword, 160, pal.accent), Type.cardBody, color = pal.ink2, maxLines = 5)
-                note.images.isEmpty() && note.title.isBlank() -> Txt("空白笔记", Type.cardBody, color = pal.ink3)
+                note.media.isEmpty() && note.title.isBlank() -> Txt("空白笔记", Type.cardBody, color = pal.ink3)
             }
             Spacer(Modifier.height(7.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Txt(whenText(note.updated), Type.small, color = pal.ink3, modifier = Modifier.weight(1f))
+                // 有语音：话筒 + 条数
+                val voices = note.media.count { it.kind == MediaKind.Audio }
+                if (voices > 0) {
+                    Icon(Icons.mic, pal.ink3, Modifier.size(13.dp))
+                    if (voices > 1) Txt("$voices", Type.small, color = pal.ink3, modifier = Modifier.padding(start = 1.dp))
+                    Spacer(Modifier.width(6.dp))
+                }
                 if (note.pinned) Icon(Icons.pinFill, pal.accent, Modifier.size(14.dp))
             }
         }

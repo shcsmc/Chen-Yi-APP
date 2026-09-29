@@ -43,7 +43,18 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
             db.execSQL("ALTER TABLE notes ADD COLUMN vault INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE notes ADD COLUMN vault_key TEXT NOT NULL DEFAULT ''")
         }
-        // 以后：if (oldVersion < 3) { ... } 依次往下
+        if (oldVersion < 3) {
+            // 第 3 版：附件除了图片还有视频、语音；可以插在正文中间、改大小和对齐。
+            // 表名仍叫 images（只加不删），旧图片都是 kind=0、at=-1（文末）
+            db.execSQL("ALTER TABLE images ADD COLUMN kind INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE images ADD COLUMN dur INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE images ADD COLUMN at INTEGER NOT NULL DEFAULT -1")
+            db.execSQL("ALTER TABLE images ADD COLUMN width INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE images ADD COLUMN align INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE images ADD COLUMN size INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE images ADD COLUMN mime TEXT NOT NULL DEFAULT ''")
+        }
+        // 以后：if (oldVersion < 4) { ... } 依次往下
     }
 
     fun loadAll(): Snapshot {
@@ -57,10 +68,14 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
                 )
             }
         }
-        val imgs = HashMap<String, MutableList<NoteImage>>()
-        db.rawQuery("SELECT id,note,w,h FROM images ORDER BY note,pos", null).use { c ->
+        val media = HashMap<String, MutableList<Media>>()
+        db.rawQuery("SELECT id,note,w,h,kind,dur,at,width,align,size,mime FROM images ORDER BY note,pos", null).use { c ->
             while (c.moveToNext()) {
-                imgs.getOrPut(c.getString(1)) { ArrayList() } += NoteImage(c.getString(0), c.getInt(2), c.getInt(3))
+                media.getOrPut(c.getString(1)) { ArrayList() } += Media(
+                    id = c.getString(0), w = c.getInt(2), h = c.getInt(3), kind = MediaKind.of(c.getInt(4)),
+                    dur = c.getLong(5), at = c.getInt(6), width = c.getInt(7), align = c.getInt(8),
+                    size = c.getLong(9), mime = c.getString(10),
+                )
             }
         }
         val notes = ArrayList<Note>()
@@ -71,7 +86,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
                 val id = c.getString(0)
                 notes += Note(
                     id = id, cat = c.getString(1), title = c.getString(2), body = c.getString(3),
-                    images = imgs[id].orEmpty(), pinned = c.getInt(4) != 0, deletedAt = c.getLong(5),
+                    media = media[id].orEmpty(), pinned = c.getInt(4) != 0, deletedAt = c.getLong(5),
                     created = c.getLong(6), updated = c.getLong(7), encrypted = c.getInt(8) != 0,
                     vault = c.getInt(9) != 0, vaultKey = c.getString(10),
                 )
@@ -108,13 +123,20 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
             put("vault_key", n.vaultKey)
         }, SQLiteDatabase.CONFLICT_REPLACE)
         db.delete("images", "note=?", arrayOf(n.id))
-        n.images.forEachIndexed { i, m ->
+        n.media.forEachIndexed { i, m ->
             db.insertWithOnConflict("images", null, ContentValues().apply {
                 put("id", m.id)
                 put("note", n.id)
                 put("pos", i)
                 put("w", m.w)
                 put("h", m.h)
+                put("kind", m.kind.code)
+                put("dur", m.dur)
+                put("at", m.at)
+                put("width", m.width)
+                put("align", m.align)
+                put("size", m.size)
+                put("mime", m.mime)
             }, SQLiteDatabase.CONFLICT_REPLACE)
         }
     }
@@ -131,7 +153,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
     }
 
     companion object {
-        const val VERSION = 2
+        const val VERSION = 3
 
         val BUILTIN = listOf(
             Category(Ids.NOTE, "笔记", "doc", Layout.Cards, 0, builtin = true),

@@ -24,6 +24,7 @@ class Store(context: Context) {
     private val app = context.applicationContext
     val prefs = Prefs(app)
     val images = Images(app)
+    val clips = Clips(app)
     val background = Background(app)
     val vault = Vault(app)
     private val db = Db(app)
@@ -44,10 +45,14 @@ class Store(context: Context) {
         _data.value = withContext(io) { db.loadAll() }
     }
 
-    /** 启动时清理孤儿图片；必须在没有导入/迁移进行时调用 */
+    /** 启动时清理孤儿文件（图片、视频、语音）和没收尾的录音；必须在没有导入/迁移进行时调用 */
     fun collectGarbage() {
-        val keep = _data.value.notes.flatMapTo(HashSet()) { n -> n.images.map { it.id } }
-        scope.launch(io) { images.collectGarbage(keep) }
+        val keep = _data.value.notes.flatMapTo(HashSet()) { n -> n.media.map { it.id } }
+        scope.launch(io) {
+            images.collectGarbage(keep)
+            clips.collectGarbage(keep)
+            clips.clearTemp()
+        }
     }
 
     private fun write(block: Db.() -> Unit) {
@@ -95,7 +100,7 @@ class Store(context: Context) {
         changeNotes(ids) { it.copy(cat = cat, updated = now) }
     }
 
-    /** 彻底删除（清空回收站、丢弃空白笔记），连同图片文件 */
+    /** 彻底删除（清空回收站、丢弃空白笔记），连同图片、视频、语音文件 */
     fun purge(ids: Collection<String>) {
         val set = ids.toHashSet()
         val gone = _data.value.notes.filter { it.id in set }
@@ -103,7 +108,12 @@ class Store(context: Context) {
         _data.update { s -> s.copy(notes = s.notes.filterNot { it.id in set }) }
         scope.launch(io) {
             db.deleteNotes(set)
-            gone.forEach { n -> n.images.forEach { images.delete(it.id) } }
+            gone.forEach { n ->
+                n.media.forEach {
+                    images.delete(it.id)
+                    clips.delete(it.id)
+                }
+            }
         }
     }
 
@@ -133,14 +143,17 @@ class Store(context: Context) {
     /** 保存保险箱里的笔记：明文进来，加密后入库 */
     fun saveVaultNote(plain: Note) = saveNote(vault.sealNote(plain))
 
-    /** 移入保险箱：文字和图片都加密，明文图片文件删除。要求已解锁 */
+    /** 移入保险箱：文字和附件都加密，明文文件删除。要求已解锁 */
     suspend fun moveToVault(ids: Collection<String>): Int {
         val set = ids.toHashSet()
         val targets = _data.value.notes.filter { it.id in set && !it.vault && !it.encrypted }
         if (targets.isEmpty()) return 0
         val sealed = withContext(io) {
             targets.map { n ->
-                n.images.forEach { images.sealInPlace(it.id, vault::sealBytes) }
+                n.media.forEach { m ->
+                    images.sealInPlace(m.id, vault::sealBytes)          // 图片本身，或视频的缩略图
+                    if (m.kind != MediaKind.Image) clips.sealInPlace(m.id, vault::sealFile)
+                }
                 vault.sealNote(n)
             }.also { db.upsertNotes(it) }
         }
@@ -155,7 +168,10 @@ class Store(context: Context) {
         if (targets.isEmpty()) return 0
         val plain = withContext(io) {
             targets.map { n ->
-                n.images.forEach { images.openInPlace(it.id, vault::openBytes) }
+                n.media.forEach { m ->
+                    images.openInPlace(m.id, vault::openBytes)
+                    if (m.kind != MediaKind.Image) clips.openInPlace(m.id, vault::openFile)
+                }
                 vault.openNote(n).copy(vault = false, vaultKey = "", cat = cat)
             }.also { db.upsertNotes(it) }
         }
@@ -173,7 +189,10 @@ class Store(context: Context) {
         val targets = _data.value.notes.filter { it.vault && it.vaultKey == foreignId }
         val rekeyed = withContext(io) {
             targets.map { n ->
-                n.images.forEach { images.resealInPlace(it.id, { b -> VaultCrypto.open(srcKey, b) }, vault::sealBytes) }
+                n.media.forEach { m ->
+                    images.resealInPlace(m.id, { b -> VaultCrypto.open(srcKey, b) }, vault::sealBytes)
+                    if (m.kind != MediaKind.Image) clips.resealInPlace(m.id) { f -> vault.resealFile(srcKey, f) }
+                }
                 n.copy(
                     title = vault.sealText(VaultCrypto.openText(srcKey, n.title)),
                     body = vault.sealText(VaultCrypto.openText(srcKey, n.body)),

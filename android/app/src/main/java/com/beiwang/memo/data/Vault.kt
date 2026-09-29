@@ -223,6 +223,15 @@ class Vault(context: Context) {
     fun sealBytes(b: ByteArray) = VaultCrypto.seal(k(), b)
     fun openBytes(b: ByteArray) = VaultCrypto.open(k(), b)
 
+    // 视频、语音这类大文件：分块加密，边读边写（见 StreamCrypto）
+    fun sealStream(input: java.io.InputStream, out: java.io.OutputStream): Long = StreamCrypto.seal(k(), input, out)
+    fun sealFile(src: java.io.File, dst: java.io.File): Long = StreamCrypto.sealFile(k(), src, dst)
+    fun openFile(src: java.io.File, dst: java.io.File): Long = StreamCrypto.openFile(k(), src, dst)
+    /** 播放用的随机读；拿到后就算上锁也能读完（文件密钥在它自己手里），用完要关 */
+    fun reader(file: java.io.File): StreamCrypto.Reader = StreamCrypto.Reader(k(), file)
+    /** 别的设备的保险箱文件（[from] 是那边的内容密钥）换成本机的密钥 */
+    fun resealFile(from: ByteArray, file: java.io.File) = StreamCrypto.resealFile(from, k(), file)
+
     /** 明文笔记 → 保险箱里存的样子 */
     fun sealNote(n: Note): Note = n.copy(title = sealText(n.title), body = sealText(n.body), vault = true, vaultKey = "")
 
