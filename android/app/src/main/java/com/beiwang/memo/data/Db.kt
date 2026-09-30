@@ -54,7 +54,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
             db.execSQL("ALTER TABLE images ADD COLUMN size INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE images ADD COLUMN mime TEXT NOT NULL DEFAULT ''")
         }
-        // 以后：if (oldVersion < 4) { ... } 依次往下
+        if (oldVersion < 4) {
+            // 第 4 版：每条笔记自己的字号（0 = 默认）
+            db.execSQL("ALTER TABLE notes ADD COLUMN font INTEGER NOT NULL DEFAULT 0")
+        }
+        // 以后：if (oldVersion < 5) { ... } 依次往下
     }
 
     fun loadAll(): Snapshot {
@@ -80,7 +84,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
         }
         val notes = ArrayList<Note>()
         db.rawQuery(
-            "SELECT id,cat,title,body,pinned,deleted_at,created,updated,encrypted,vault,vault_key FROM notes", null
+            "SELECT id,cat,title,body,pinned,deleted_at,created,updated,encrypted,vault,vault_key,font FROM notes", null
         ).use { c ->
             while (c.moveToNext()) {
                 val id = c.getString(0)
@@ -88,7 +92,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
                     id = id, cat = c.getString(1), title = c.getString(2), body = c.getString(3),
                     media = media[id].orEmpty(), pinned = c.getInt(4) != 0, deletedAt = c.getLong(5),
                     created = c.getLong(6), updated = c.getLong(7), encrypted = c.getInt(8) != 0,
-                    vault = c.getInt(9) != 0, vaultKey = c.getString(10),
+                    vault = c.getInt(9) != 0, vaultKey = c.getString(10), font = c.getInt(11),
                 )
             }
         }
@@ -121,6 +125,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
             put("encrypted", if (n.encrypted) 1 else 0)
             put("vault", if (n.vault) 1 else 0)
             put("vault_key", n.vaultKey)
+            put("font", n.font)
         }, SQLiteDatabase.CONFLICT_REPLACE)
         db.delete("images", "note=?", arrayOf(n.id))
         n.media.forEachIndexed { i, m ->
@@ -153,7 +158,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
     }
 
     companion object {
-        const val VERSION = 3
+        const val VERSION = 4
 
         val BUILTIN = listOf(
             Category(Ids.NOTE, "笔记", "doc", Layout.Cards, 0, builtin = true),

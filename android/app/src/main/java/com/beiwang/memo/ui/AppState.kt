@@ -102,6 +102,8 @@ class EditorSession(val base: Note, val layout: Layout, val isNew: Boolean, val 
     var blocks by mutableStateOf(build(Blocks.split(base.body, base.media), emptyMap()))
         private set
     var pinned by mutableStateOf(base.pinned)
+    /** 这条笔记的字号（0 = 默认），Aa 里改 */
+    var font by mutableIntStateOf(base.font)
     /** 最近一次写盘的时间，用来闪一下「已保存」 */
     var savedAt by mutableLongStateOf(0L)
     /** 是否已经写进过数据库（新建但一个字没写的不入库） */
@@ -152,12 +154,12 @@ class EditorSession(val base: Note, val layout: Layout, val isNew: Boolean, val 
 
     fun snapshot(now: Long): Note {
         val (body, media) = Blocks.join(pieces())
-        return base.copy(title = title.text.toString(), body = body, media = media, pinned = pinned, updated = now)
+        return base.copy(title = title.text.toString(), body = body, media = media, pinned = pinned, font = font, updated = now)
     }
 
     /** 和库里的一样吗（比标准形：旧数据里「文末」的附件位置是 -1，打开再关上不算改动） */
     fun sameAs(n: Note): Boolean {
-        if (n.title != title.text.toString() || n.pinned != pinned) return false
+        if (n.title != title.text.toString() || n.pinned != pinned || n.font != font) return false
         return Blocks.canonical(n.body, n.media) == Blocks.join(pieces())
     }
 

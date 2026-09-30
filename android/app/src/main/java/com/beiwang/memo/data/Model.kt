@@ -90,6 +90,8 @@ data class Note(
     val vault: Boolean = false,
     /** 保险箱密钥归属：空 = 本机保险箱；否则是其他设备保险箱的 id（传过来还没用原密码转换的） */
     val vaultKey: String = "",
+    /** 这条笔记的正文字号（sp）；0 = 默认（[FontSizes.DEFAULT]）。每条笔记各自的，在编辑页的 Aa 里改 */
+    val font: Int = 0,
 ) {
     val inTrash: Boolean get() = deletedAt != 0L
     val isBlank: Boolean get() = title.isBlank() && body.isBlank() && media.isEmpty()
@@ -123,4 +125,14 @@ object Ids {
         repeat(6) { sb.append("0123456789abcdefghijklmnopqrstuvwxyz"[rnd.nextInt(36)]) }
         return sb.toString()
     }
+}
+
+/** 编辑页可选的字号 */
+object FontSizes {
+    val SIZES = listOf(14, 16, 18, 20, 23)
+    val LABELS = listOf("小", "标准", "大", "较大", "特大")
+    const val DEFAULT = 16
+
+    /** 实际用的字号：没设过（0）或不在可选范围里的都按默认 */
+    fun effective(font: Int): Int = if (font in SIZES) font else DEFAULT
 }

@@ -9,22 +9,22 @@
 ## 结构（`android/app/src/main/java/com/beiwang/memo/`）
 
 - `data/` —— 数据层，不含界面代码
-  - `Model.kt`：Category / Note / Media（附件：图片、视频、语音）/ Snapshot；内置分类 id `note`、`memo`（沿用旧版 type）；只有「笔记」不能删（无家可归的内容都回到它）；分类上限 4 个（底栏加「＋」共 5 格）
-  - `Db.kt`：SQLite（表 categories / notes / images）。附件表仍叫 images（第 3 版加了 kind/dur/at/width/align/size/mime）
+  - `Model.kt`：Category / Note / Media（附件：图片、视频、语音）/ Snapshot / FontSizes（每条笔记的字号档位）；内置分类 id `note`、`memo`（沿用旧版 type）；只有「笔记」不能删（无家可归的内容都回到它）；分类上限 4 个（底栏加「＋」共 5 格）
+  - `Db.kt`：SQLite（表 categories / notes / images）。附件表仍叫 images（第 3 版加了 kind/dur/at/width/align/size/mime）；第 4 版 notes 加了 font（每条笔记的字号，0 = 默认）
   - `Blocks.kt`：图文混排（见下「附件」），纯算法，有单元测试
   - `Store.kt`：**唯一的数据入口**。内存快照是界面的唯一数据源，改动先换快照、再排进单线程 IO 队列写库
   - `Images.kt`：图片文件（原图 ≤2048 + 缩略图 ≤480，`files/img/`）；视频的封面（抽一帧）也存这里当缩略图；启动时清理没人引用的
   - `Clips.kt`：视频、语音文件（`files/media/`，原文件原样存，不转码）；录音先录到 `cache/rec/`
   - `StreamCrypto.kt`：保险箱里大文件的分块加密（能随机读，边解边播），有单元测试
   - `Background.kt`：自定义背景（`files/bg.jpg`），设背景时算出强调色和深浅；选图后先进缩放裁剪页（`ui/theme/BackgroundCrop.kt`），屏幕上看到的范围就是存下来的背景
-  - `Prefs.kt`：SharedPreferences（当前分类、背景、双指手势、编辑页字号、旧数据迁移状态）
+  - `Prefs.kt`：SharedPreferences（当前分类、背景、双指手势、旧数据迁移状态）
   - `Backup.kt`：备份（流式）。v5 本版是 zip（`backup.json` + 附件原文件，视频再大也不整个读进内存）；也能导入旧的 v4/v3 JSON。导出返回（条数，附件数）供核对；可只带选中的笔记（`ids`），分类/保险箱头/附件只带用到的。手机间传输用的也是这个格式
   - `Vault.kt` / `VaultCrypto.kt`：保险箱（见下）
   - `Transfer.kt` / `TransferSession.kt` / `Qr.kt`：两台手机扫码直传（见下）
 - `legacy/` —— 旧网页版数据迁移：`LegacyMigration.kt`（隐藏 WebView 读 IndexedDB）、`LegacyCrypto.kt`（旧图案锁密文解密）；配套页面 `assets/legacy/migrate.html`
 - `ui/`
   - `Root.kt`：界面骨架（取景层 + 悬浮层，见下）；`AppState.kt`：不入库的界面状态（编辑中、选中、面板、提示）
-  - `glass/`：液态玻璃（`Glass.kt` 通用玻璃和按钮、`LiquidTabBar.kt` 底栏透镜、`Motion.kt` 弹簧/高光、`SharedShaders.kt` 共用着色器、`Gestures.kt`）
+  - `glass/`：液态玻璃（`Glass.kt` 通用玻璃和按钮、`LiquidTabBar.kt` 底栏透镜、`LiquidSelector.kt` 同样做法的滑动选择条（选字号用）、`Motion.kt` 弹簧/高光、`SharedShaders.kt` 共用着色器、`Gestures.kt`）
   - `home/` 列表和底部控件；`editor/` 编辑页（`EditorScreen` 编辑区和工具条、`MediaViews` 附件的显示/拖动/改大小、`Players` 录音和播放、`VideoViewer` 看视频、`ImageViewer` 看大图）；`sheets/` 底部面板（设置、回收站、分类、移动、解锁）
   - `icons/Icons.kt`：全部图标（手写 SVG 路径，24×24）；`theme/`：配色（只由深浅 + 强调色推出）、背景
 - 应用图标：`res/drawable/ic_launcher_background.xml`（纸色）+ `ic_launcher_foreground.xml`（朱砂 C + 墨蓝 Y 花押，单色主题图标也用它），由 `tools/icon/make_icon.py` 生成（要改颜色、粗细就改脚本重新跑，别手改 XML）；设置底部的 `AppMark` 用的是同一套图层
@@ -77,7 +77,8 @@
 - 折射和棱边高光用 `sharedLens()` / `GlassHighlight`（`SharedShaders.kt`），不要直接用库里的 `lens()` / `Highlight.Default`：库版每个玻璃件各编译一份着色器，一排按钮同时出现时会卡一下。
 - 大玻璃面板不要做逐帧改变大小的动画（每帧都要按新尺寸重算模糊和折射）：设置面板切页时高度固定为首页高度，只做平移/淡入淡出。
 - 首页底部控件的尺寸集中在 `HomeMetrics`（底栏离底部距离、搜索行高度等），列表留白和提示条位置都按它算。**底部的排法是用户定的，不要改**：搜索行（搜索胶囊 + ✎ 新建）叠在底栏上方、设置在右上角；要调只调位置数值（如 `barBottom`）。
-- 编辑页底部是工具条（`EditorChrome`，跟着键盘上移）：加图、Aa 字号；键盘弹出时右边多一个「收起键盘」，这时正文可见区域只到工具条上沿，光标不会被挡住。字号是全局的（`Prefs.fontSize`），所有笔记通用。
+- 编辑页底部是工具条（`EditorChrome`，跟着键盘上移）：图片、视频、语音、Aa；键盘弹出时右边多一个「收起键盘」，这时正文可见区域只到工具条上沿，光标不会被挡住。
+- 字号是**每条笔记自己的**（`Note.font`，用户明确不要全局的）：Aa 打开 `LiquidSelector` 滑动条（小/标准/大/较大/特大），和底栏同样的三层透镜做法；底栏 `LiquidTabBar` 本身不动。
 
 ## 搜索
 

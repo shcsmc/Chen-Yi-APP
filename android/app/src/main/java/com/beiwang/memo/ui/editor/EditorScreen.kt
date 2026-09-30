@@ -48,7 +48,6 @@ import androidx.compose.foundation.text.input.placeCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -89,7 +88,7 @@ import com.beiwang.memo.data.Clips
 import com.beiwang.memo.data.Layout
 import com.beiwang.memo.data.Media
 import com.beiwang.memo.data.MediaKind
-import com.beiwang.memo.data.Prefs
+import com.beiwang.memo.data.FontSizes
 import com.beiwang.memo.ui.AppState
 import com.beiwang.memo.ui.DialogSpec
 import com.beiwang.memo.ui.EditorSession
@@ -100,6 +99,7 @@ import com.beiwang.memo.ui.common.pressScale
 import com.beiwang.memo.ui.common.rememberHaptics
 import com.beiwang.memo.ui.glass.GlassIconButton
 import com.beiwang.memo.ui.glass.Icon
+import com.beiwang.memo.ui.glass.LiquidSelector
 import com.beiwang.memo.ui.glass.LocalBackdrop
 import com.beiwang.memo.ui.glass.glass
 import com.beiwang.memo.ui.icons.Icons
@@ -147,7 +147,7 @@ fun EditorContent(app: AppState, e: EditorSession, modifier: Modifier = Modifier
     val cards = e.layout == Layout.Cards
     val density = LocalDensity.current
 
-    // 停手 0.4 秒自动保存：标题、每段文字、附件（结构版本号）、置顶，哪个变了都算
+    // 停手 0.4 秒自动保存：标题、每段文字、附件（结构版本号）、置顶、字号，哪个变了都算
     LaunchedEffect(e) {
         snapshotFlow {
             listOf(
@@ -155,6 +155,7 @@ fun EditorContent(app: AppState, e: EditorSession, modifier: Modifier = Modifier
                 e.blocks.map { b -> if (b is TextEdit) b.state.text.toString() else b.key },
                 e.revision,
                 e.pinned,
+                e.font,
             )
         }
             .drop(1)
@@ -173,7 +174,7 @@ fun EditorContent(app: AppState, e: EditorSession, modifier: Modifier = Modifier
         }
     }
 
-    val fontSize by app.store.prefs.fontSize.collectAsState()
+    val fontSize = FontSizes.effective(e.font)
     val titleStyle = remember(fontSize) { editorTitleStyle(fontSize) }
     val bodyStyle = remember(fontSize) { editorBodyStyle(fontSize) }
     val imeVisible = rememberImeVisible()
@@ -485,7 +486,7 @@ fun EditorChrome(app: AppState, e: EditorSession) {
                 enter = fadeIn() + scaleIn(initialScale = 0.9f, transformOrigin = TransformOrigin(0f, 1f)),
                 exit = fadeOut() + scaleOut(targetScale = 0.9f, transformOrigin = TransformOrigin(0f, 1f)),
             ) {
-                FontSizePanel(app, Modifier.padding(bottom = 10.dp))
+                FontSizePanel(e, Modifier.padding(bottom = 10.dp))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 when {
@@ -648,41 +649,30 @@ private fun RecordingBar(app: AppState, rec: VoiceRecording, modifier: Modifier 
     }
 }
 
-/** 字号：一排由小到大的「A」，当前的那个垫强调色。改了立刻生效，所有笔记通用 */
+/**
+ * 字号：和底栏一样的液态玻璃滑动条，一格一档（小 → 特大），点哪格跳哪格、按住透镜左右拖。
+ * 只改这一条笔记，改了立刻生效。
+ */
 @Composable
-private fun FontSizePanel(app: AppState, modifier: Modifier = Modifier) {
-    val pal = LocalPalette.current
-    val haptics = rememberHaptics()
-    val current by app.store.prefs.fontSize.collectAsState()
-    Row(
-        modifier
-            .glass(
-                backdrop = LocalBackdrop.current, shape = Capsule(), surface = pal.glass, fallback = pal.glassFallback,
-                blurRadius = 8.dp, refraction = 12.dp, depth = 20.dp,
-            )
-            .clickable(interactionSource = null, indication = null) { }   // 点面板空白处不关面板
-            .padding(horizontal = 6.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Txt("字号", Type.small, color = pal.ink3, modifier = Modifier.padding(start = 10.dp, end = 4.dp))
-        Prefs.FONT_SIZES.forEachIndexed { i, size ->
-            val on = size == current
-            Box(
-                Modifier
-                    .size(width = 46.dp, height = 40.dp)
-                    .clip(Capsule())
-                    .background(if (on) pal.accent else Color.Transparent)
-                    .clickable(interactionSource = null, indication = null, role = Role.RadioButton) {
-                        if (!on) {
-                            haptics.tick()
-                            app.store.prefs.setFontSize(size)
-                        }
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                // 面板里的字从 13sp 到 21sp 逐级变大，只示意大小关系
-                Txt("A", Type.label.copy(fontSize = (13 + i * 2).sp, fontWeight = FontWeight.SemiBold), color = if (on) pal.onAccent else pal.ink)
-            }
+private fun FontSizePanel(e: EditorSession, modifier: Modifier = Modifier) {
+    val selected = FontSizes.SIZES.indexOf(FontSizes.effective(e.font))
+    LiquidSelector(
+        count = FontSizes.SIZES.size,
+        selected = selected,
+        onSelect = { i ->
+            val size = FontSizes.SIZES[i]
+            // 选的就是默认字号时存 0：以后调默认值，这条也跟着走
+            val next = if (size == FontSizes.DEFAULT) 0 else size
+            if (next != e.font) e.font = next
+        },
+        backdrop = LocalBackdrop.current,
+        modifier = modifier.fillMaxWidth(),
+        height = 60.dp,
+    ) { i, color ->
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // 「A」由小到大示意档位，下面是档位名
+            Txt("A", Type.label.copy(fontSize = (13 + i * 2).sp, fontWeight = FontWeight.SemiBold), color = color, maxLines = 1)
+            Txt(FontSizes.LABELS[i], Type.tab, color = color, maxLines = 1)
         }
     }
 }

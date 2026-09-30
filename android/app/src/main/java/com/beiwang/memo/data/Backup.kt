@@ -21,7 +21,7 @@ import java.util.zip.ZipOutputStream
  *
  * v5（本版）：zip 包，第一个条目是 backup.json，后面是附件的原始文件（media/…，不转码）：
  *   {v:5, at, categories:[{id,name,icon,layout,sort,builtin}], vaults:[保险箱便携头],
- *    notes:[{id,cat,type,title,body,pin,del,delAt,cr,up,enc,vault,vaultId,
+ *    notes:[{id,cat,type,title,body,pin,del,delAt,cr,up,enc,font,vault,vaultId,
  *            media:[{kind,w,h,dur,at,width,align,size,mime,sealed,file,thumb}]}]}
  *   file/thumb 是 zip 里的条目名。保险箱里的笔记原样导出密文（title/body 是 "v2:…"，附件是加密文件，sealed=true），
  *   便携头里只有「保险箱密码包住的内容密钥」—— 所以备份文件里的保险箱内容只靠保险箱密码保护。
@@ -107,6 +107,7 @@ object Backup {
             w.name("cr").value(n.created)
             w.name("up").value(n.updated)
             w.name("enc").value(n.encrypted)
+            if (n.font > 0) w.name("font").value(n.font)
             if (n.vault) {
                 w.name("vault").value(true)
                 w.name("vaultId").value(n.vaultKey.ifEmpty { localVaultId.orEmpty() })
@@ -381,6 +382,7 @@ object Backup {
         var upKnown = false
         var vault = false
         var vaultId = ""
+        var font = 0
 
         r.beginObject()
         while (r.hasNext()) {
@@ -398,6 +400,7 @@ object Backup {
                 "enc" -> enc = bool(r)
                 "vault" -> vault = bool(r)
                 "vaultId" -> vaultId = str(r)
+                "font" -> font = long(r).toInt()
                 "imgs", "media" -> {
                     // 本地版本更新的话不必读附件。旧版备份里 imgs 排在 up 前面，
                     // 那时还不知道要不要跳过，只能先导入；跳过后留下的文件由启动清理删掉
@@ -430,7 +433,7 @@ object Backup {
             id = nid, cat = localCat, title = title, body = body, media = media, pinned = pin,
             deletedAt = if (del) (if (delAt > 0) delAt else up.takeIf { it > 0 } ?: now) else 0L,
             created = if (cr > 0) cr else now, updated = if (up > 0) up else now, encrypted = encrypted,
-            vault = vault, vaultKey = if (vault) vaultId else "",
+            vault = vault, vaultKey = if (vault) vaultId else "", font = font,
         ) to failed
     }
 
