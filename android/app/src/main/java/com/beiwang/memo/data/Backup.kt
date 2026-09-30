@@ -22,7 +22,7 @@ import java.util.zip.ZipOutputStream
  * v5（本版）：zip 包，第一个条目是 backup.json，后面是附件的原始文件（media/…，不转码）：
  *   {v:5, at, categories:[{id,name,icon,layout,sort,builtin}], vaults:[保险箱便携头],
  *    notes:[{id,cat,type,title,body,pin,del,delAt,cr,up,enc,font,vault,vaultId,
- *            media:[{kind,w,h,dur,at,width,align,size,mime,sealed,file,thumb}]}]}
+ *            media:[{kind,w,h,dur,at,width,align,size,mime,wave,sealed,file,thumb}]}]}
  *   file/thumb 是 zip 里的条目名。保险箱里的笔记原样导出密文（title/body 是 "v2:…"，附件是加密文件，sealed=true），
  *   便携头里只有「保险箱密码包住的内容密钥」—— 所以备份文件里的保险箱内容只靠保险箱密码保护。
  * v4（上一版，纯 JSON）：同上，但附件只有图片，放在 imgs:[{w,h,data[,thumb,sealed]}] 里（base64）。
@@ -140,6 +140,7 @@ object Backup {
                 if (m.align != 0) w.name("align").value(m.align)
                 if (m.size > 0) w.name("size").value(m.size)
                 if (m.mime.isNotEmpty()) w.name("mime").value(m.mime)
+                if (m.wave.isNotEmpty()) w.name("wave").value(m.wave)
                 if (sealed) w.name("sealed").value(true)
                 w.name("file").value(mainName)
                 if (thumb != null) w.name("thumb").value(thumbName)
@@ -474,6 +475,7 @@ object Backup {
         var align = 0
         var size = 0L
         var mime = ""
+        var wave = ""
         var sealed = false
         var file: String? = null
         var thumb: String? = null
@@ -489,6 +491,7 @@ object Backup {
                 "align" -> align = long(r).toInt()
                 "size" -> size = long(r)
                 "mime" -> mime = str(r)
+                "wave" -> wave = str(r)
                 "sealed" -> sealed = bool(r)
                 "file" -> file = str(r)
                 "thumb" -> thumb = str(r)
@@ -509,7 +512,7 @@ object Backup {
         thumb?.takeIf { it.isNotEmpty() && it != f }?.let { t ->
             pending[t] = Incoming(if (sealed) images.sealedThumb(id) else images.thumb(id), main = false, mediaId = id)
         }
-        return Media(id, w, h, kind, dur = dur, at = at, width = width, align = align, size = size, mime = mime)
+        return Media(id, w, h, kind, dur = dur, at = at, width = width, align = align, size = size, mime = mime, wave = wave)
     }
 
     /** 读一个只有字符串/数字字段的小对象，转回 JSON 文本（保险箱便携头用） */

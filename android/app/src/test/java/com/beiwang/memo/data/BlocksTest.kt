@@ -155,6 +155,16 @@ class BlocksTest {
     }
 
     @Test
+    fun audioCanBeResizedButNotTooNarrow() {
+        val a = Media("a", 0, 0, MediaKind.Audio, dur = 5_000)
+        assertEquals(Blocks.audioWidth(5_000), a.displayWidth)            // 没拖过：按时长
+        assertEquals(60, a.copy(width = 60).displayWidth)                 // 拖过：按拖的
+        assertEquals(Media.MIN_AUDIO_WIDTH, a.copy(width = 10).displayWidth)
+        assertEquals(Media.MIN_AUDIO_WIDTH, Blocks.snapWidth(12f, a.minWidth))
+        assertEquals(33, Blocks.snapWidth(31f, a.minWidth))                // 吸附也不低于下限
+    }
+
+    @Test
     fun audioWidthGrowsWithDuration() {
         assertTrue(Blocks.audioWidth(1_000) < Blocks.audioWidth(30_000))
         assertEquals(Blocks.audioWidth(60_000), Blocks.audioWidth(600_000))

@@ -1,5 +1,14 @@
 package com.beiwang.memo.ui.editor
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -7,6 +16,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,21 +34,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -53,6 +68,7 @@ import androidx.compose.ui.util.lerp
 import com.beiwang.memo.data.Blocks
 import com.beiwang.memo.data.Media
 import com.beiwang.memo.data.MediaKind
+import com.beiwang.memo.data.Waves
 import com.beiwang.memo.ui.AppState
 import com.beiwang.memo.ui.EditorSession
 import com.beiwang.memo.ui.GroupEdit
@@ -71,6 +87,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
+import kotlinx.coroutines.isActive
 
 private val TileShape = RoundedRectangle(14.dp)
 /** 一组附件之间的间距 */
@@ -308,7 +325,7 @@ private fun MediaItem(app: AppState, e: EditorSession, m: Media, width: Dp, full
                     .matchParentSize()
                     .border(2.5.dp, pal.accent, if (m.kind == MediaKind.Audio) Capsule() else TileShape)
             )
-            if (m.kind != MediaKind.Audio) ResizeHandle(e, m, width, full, haptics, Modifier.align(Alignment.BottomEnd))
+            ResizeHandle(e, m, width, full, haptics, Modifier.align(Alignment.BottomEnd))
         }
     }
 }
@@ -344,62 +361,139 @@ fun VisualTile(app: AppState, e: EditorSession, m: Media, modifier: Modifier = M
     }
 }
 
-/** 语音条：▶ + 时长；播放时进度从左往右铺强调色 */
+/**
+ * 语音条：播放键 + 波形 + 时间。
+ * - 波形是录音时记下的真实音量（旧的没有就用固定起伏代替），宽度改了柱子数跟着变；
+ * - 播放时已播的部分变成强调色，进度每一帧都往前推（120Hz 的屏幕一秒 120 帧，只重画不重组），
+ *   播放头经过的几根柱子轻轻鼓起来，暂停后慢慢收回；
+ * - 正在放（或暂停着）的这一条，可以在波形上左右拖着跳。
+ * 做法参考了 compose-audiowaveform（Apache-2.0）的「柱状波形 + 已播部分换色」，代码是自己写的。
+ */
 @Composable
 fun VoiceBar(app: AppState, e: EditorSession?, m: Media, modifier: Modifier = Modifier) {
     val pal = LocalPalette.current
     val voice = app.voice
     val mine = voice.current == m.id
     val playing = mine && voice.playing
-    val progress = if (mine && m.dur > 0) (voice.position.toFloat() / m.dur).coerceIn(0f, 1f) else 0f
+    val total = (if (mine && voice.duration > 0) voice.duration else m.dur).coerceAtLeast(1L)
+    val progress = remember(m.id) { mutableFloatStateOf(0f) }
+    var scrubbing by remember(m.id) { mutableStateOf(false) }
+    LaunchedEffect(m.id, mine, playing, scrubbing) {
+        if (scrubbing) return@LaunchedEffect
+        if (!mine) {
+            progress.floatValue = 0f
+            return@LaunchedEffect
+        }
+        if (!playing) {
+            progress.floatValue = (voice.position.toFloat() / total).coerceIn(0f, 1f)
+            return@LaunchedEffect
+        }
+        while (isActive) {
+            withFrameNanos { progress.floatValue = (voice.livePosition().toFloat() / total).coerceIn(0f, 1f) }
+        }
+    }
+    val bump by animateFloatAsState(if (playing) 1f else 0f, spring(0.8f, 220f), label = "bump")
+    val levels = remember(m.id, m.wave) { Waves.decode(m.wave) ?: Waves.placeholder(m.id) }
+
     Row(
         modifier
             .fillMaxWidth()
-            .height(46.dp)
+            .height(48.dp)
             .clip(Capsule())
-            .background(pal.accent.copy(alpha = 0.16f))
-            .drawBehind {
-                if (progress > 0f) drawRect(pal.accent.copy(alpha = 0.22f), size = Size(size.width * progress, size.height))
-            }
+            .background(pal.accent.copy(alpha = 0.14f))
             .padding(start = 6.dp, end = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(34.dp).clip(CircleShape).background(pal.accent), contentAlignment = Alignment.Center) {
-            Icon(if (playing) Icons.pause else Icons.play, pal.onAccent, Modifier.size(18.dp).offset(x = if (playing) 0.dp else 1.dp))
+        Box(Modifier.size(36.dp).clip(CircleShape).background(pal.accent), contentAlignment = Alignment.Center) {
+            AnimatedContent(
+                playing,
+                transitionSpec = {
+                    (fadeIn(tween(160)) + scaleIn(initialScale = 0.6f)) togetherWith (fadeOut(tween(120)) + scaleOut(targetScale = 0.6f))
+                },
+                label = "play",
+            ) { p ->
+                Icon(if (p) Icons.pause else Icons.play, pal.onAccent, Modifier.size(18.dp).offset(x = if (p) 0.dp else 1.dp))
+            }
         }
-        Spacer(Modifier.width(8.dp))
-        // 示意的声波：按 id 生成固定的高低，不是真实波形
-        Waveform(m.id, pal.accent, Modifier.weight(1f).height(22.dp))
-        Spacer(Modifier.width(8.dp))
-        Txt(durationText(if (mine && voice.position > 0) voice.position else m.dur), Type.label, color = pal.ink2, maxLines = 1)
+        Spacer(Modifier.width(10.dp))
+        Waveform(
+            levels, { progress.floatValue }, { bump }, pal.accent,
+            Modifier
+                .weight(1f)
+                .height(30.dp)
+                .then(
+                    if (!mine) Modifier else Modifier.pointerInput(m.id) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { p ->
+                                scrubbing = true
+                                progress.floatValue = (p.x / size.width).coerceIn(0f, 1f)
+                            },
+                            onDragEnd = {
+                                voice.seek((progress.floatValue * total).toLong())
+                                scrubbing = false
+                            },
+                            onDragCancel = { scrubbing = false },
+                            onHorizontalDrag = { change, _ ->
+                                change.consume()
+                                progress.floatValue = (change.position.x / size.width).coerceIn(0f, 1f)
+                            },
+                        )
+                    }
+                ),
+        )
+        Spacer(Modifier.width(10.dp))
+        val shown = when {
+            !mine -> m.dur
+            scrubbing -> (progress.floatValue * total).toLong()
+            else -> voice.position
+        }
+        // 等宽数字：时间在走的时候文字不左右晃
+        Txt(durationText(shown), Type.label.copy(fontFeatureSettings = "tnum"), color = pal.ink2, maxLines = 1)
     }
 }
 
+/** 柱状波形：已播的柱子强调色，没播的淡一些，播放头所在那根按比例切成两截 */
 @Composable
-private fun Waveform(seed: String, color: Color, modifier: Modifier) {
-    val bars = remember(seed) {
-        val r = java.util.Random(seed.hashCode().toLong())
-        List(28) { 0.25f + r.nextFloat() * 0.75f }
-    }
+private fun Waveform(levels: FloatArray, progress: () -> Float, bump: () -> Float, color: Color, modifier: Modifier) {
     Box(
-        modifier.drawBehind {
-            val n = bars.size
-            val step = size.width / n
-            val w = (step * 0.45f).coerceAtLeast(1f)
-            bars.forEachIndexed { i, h ->
-                val bh = size.height * h
-                drawRoundRect(
-                    color.copy(alpha = 0.55f),
-                    topLeft = Offset(i * step + (step - w) / 2, (size.height - bh) / 2),
-                    size = Size(w, bh),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w / 2, w / 2),
-                )
+        modifier.drawWithCache {
+            val barW = 3.dp.toPx()
+            val gap = 2.dp.toPx()
+            val n = ((size.width + gap) / (barW + gap)).toInt().coerceAtLeast(1)
+            val values = Waves.resample(levels, n)
+            val minH = 3.dp.toPx()
+            val maxH = size.height * 0.8f            // 留出鼓包的余地
+            val radius = CornerRadius(barW / 2, barW / 2)
+            val used = n * (barW + gap) - gap
+            val start = (size.width - used) / 2
+            val dim = color.copy(alpha = 0.32f)
+            onDrawBehind {
+                val px = start + progress() * used
+                val b = bump()
+                for (i in 0 until n) {
+                    val x = start + i * (barW + gap)
+                    var h = minH + (maxH - minH) * values[i]
+                    if (b > 0f) {
+                        val d = abs(x + barW / 2 - px) / (barW + gap)
+                        h *= 1f + 0.25f * b * (1f - d / 2.5f).coerceAtLeast(0f)
+                    }
+                    h = h.coerceAtMost(size.height)
+                    val top = (size.height - h) / 2
+                    when {
+                        x + barW <= px -> drawRoundRect(color, Offset(x, top), Size(barW, h), radius)
+                        x >= px -> drawRoundRect(dim, Offset(x, top), Size(barW, h), radius)
+                        else -> {
+                            drawRoundRect(dim, Offset(x, top), Size(barW, h), radius)
+                            clipRect(right = px) { drawRoundRect(color, Offset(x, top), Size(barW, h), radius) }
+                        }
+                    }
+                }
             }
         }
     )
 }
 
-/** 选中的图片/视频右下角的拖角：左右拖改宽度，靠近常用宽度（1/4、1/3、1/2…）会吸过去并轻震一下 */
+/** 选中的附件右下角的拖角：左右拖改宽度（语音条是改长度），靠近常用宽度（1/4、1/3、1/2…）会吸过去并轻震一下 */
 @Composable
 private fun ResizeHandle(e: EditorSession, m: Media, width: Dp, full: Dp, haptics: Haptics, modifier: Modifier) {
     val pal = LocalPalette.current
@@ -424,7 +518,7 @@ private fun ResizeHandle(e: EditorSession, m: Media, width: Dp, full: Dp, haptic
                         change.consume()
                         moved += amount.x
                         val pct = (startPx + moved + gapPx) / (fullPx + gapPx) * 100f
-                        val next = Blocks.snapWidth(pct)
+                        val next = Blocks.snapWidth(pct, m.minWidth)
                         if (next != last) {
                             if (next in Blocks.SNAPS) haptics.tick()
                             last = next

@@ -5,6 +5,7 @@ import android.media.MediaDataSource
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Build
+import android.os.SystemClock
 import android.view.Surface
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -43,6 +44,9 @@ private fun MediaPlayer.attach(store: Store, m: Media, vault: Boolean): () -> Un
 /**
  * 编辑页里的语音条播放：同一时间只放一条，点另一条会先停掉前一条。
  * 在主线程用（MediaPlayer 的回调回到主线程）。
+ *
+ * 进度有两个：[position] 每 0.1 秒从播放器读一次（给时间文字用）；[livePosition] 在两次读数之间
+ * 按系统时钟往前推，语音条的波形每一帧都用它画，屏幕是 120Hz 就一秒走 120 步，不会一跳一跳。
  */
 @Stable
 class VoicePlayer(private val store: Store) {
@@ -51,22 +55,37 @@ class VoicePlayer(private val store: Store) {
         private set
     var playing by mutableStateOf(false)
         private set
-    /** 播放进度（毫秒） */
+    /** 播放进度（毫秒），约 0.1 秒更新一次 */
     var position by mutableLongStateOf(0L)
+        private set
+    /** 这一条的总长（毫秒） */
+    var duration by mutableLongStateOf(0L)
         private set
 
     private var player: MediaPlayer? = null
     private var closeSource: () -> Unit = {}
     private var ticker: Job? = null
+    // 最近一次从播放器读到的位置和读数时刻
+    private var anchorPos = 0L
+    private var anchorAt = 0L
+
+    /** 此刻的播放位置（毫秒）：播放中按时钟往前推，暂停时就是停下的位置 */
+    fun livePosition(): Long {
+        if (!playing) return position
+        val p = anchorPos + (SystemClock.uptimeMillis() - anchorAt)
+        return if (duration > 0) p.coerceAtMost(duration) else p
+    }
 
     fun toggle(m: Media, vault: Boolean, onError: (String) -> Unit) {
         val p = player
         if (current == m.id && p != null) {
             if (playing) {
+                position = livePosition()
                 p.pause()
                 playing = false
             } else {
                 p.start()
+                anchor(position)
                 playing = true
                 tick()
             }
@@ -77,7 +96,9 @@ class VoicePlayer(private val store: Store) {
         try {
             closeSource = mp.attach(store, m, vault)
             mp.setOnPreparedListener {
+                if (it.duration > 0) duration = it.duration.toLong()
                 it.start()
+                anchor(0)
                 playing = true
                 tick()
             }
@@ -90,6 +111,7 @@ class VoicePlayer(private val store: Store) {
             player = mp
             current = m.id
             position = 0
+            duration = m.dur
             mp.prepareAsync()
         } catch (e: Exception) {
             runCatching { mp.release() }
@@ -99,6 +121,15 @@ class VoicePlayer(private val store: Store) {
             current = null
             onError("这段语音放不了")
         }
+    }
+
+    /** 拖波形跳到某处（只对正在放/暂停着的这一条） */
+    fun seek(ms: Long) {
+        val p = player ?: return
+        val t = if (duration > 0) ms.coerceIn(0, duration) else ms.coerceAtLeast(0)
+        runCatching { p.seekTo(t, MediaPlayer.SEEK_CLOSEST) }
+        position = t
+        anchor(t)
     }
 
     fun stop() {
@@ -113,11 +144,21 @@ class VoicePlayer(private val store: Store) {
         position = 0
     }
 
+    private fun anchor(pos: Long) {
+        anchorPos = pos
+        anchorAt = SystemClock.uptimeMillis()
+    }
+
     private fun tick() {
         ticker?.cancel()
         ticker = store.scope.launch {
             while (isActive && playing) {
-                position = runCatching { player?.currentPosition?.toLong() }.getOrNull() ?: position
+                val p = runCatching { player?.currentPosition?.toLong() }.getOrNull()
+                if (p != null) {
+                    position = p
+                    // 只在往前走时对表：播放器的读数有时比实际慢一点，往回拉会让进度抖一下
+                    if (p >= livePosition() - 40) anchor(p)
+                }
                 delay(100)
             }
         }
@@ -234,6 +275,9 @@ class VoiceRecording private constructor(
         private set
     var elapsed by mutableLongStateOf(0L)
         private set
+    /** 每 80 毫秒一个音量，录完压成波形存起来（见 Waves） */
+    private val samples = ArrayList<Float>()
+    val levels: List<Float> get() = samples
     private var ticker: Job? = null
     private var done = false
 
@@ -244,6 +288,7 @@ class VoiceRecording private constructor(
                 val amp = runCatching { recorder.maxAmplitude }.getOrDefault(0)
                 // 人耳对音量是对数感受：开方让小声也看得出起伏
                 level = sqrt(amp / 32767f).coerceIn(0f, 1f)
+                samples += level
                 if (elapsed >= MAX_MS) {
                     onLimit()
                     return@launch

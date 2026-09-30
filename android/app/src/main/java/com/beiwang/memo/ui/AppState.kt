@@ -20,6 +20,7 @@ import com.beiwang.memo.data.Layout
 import com.beiwang.memo.data.Note
 import com.beiwang.memo.data.Media
 import com.beiwang.memo.data.Store
+import com.beiwang.memo.data.Waves
 import com.beiwang.memo.legacy.LegacyMigration
 import com.beiwang.memo.ui.editor.VideoPlayback
 import com.beiwang.memo.ui.editor.VoicePlayer
@@ -336,7 +337,7 @@ class AppState(val store: Store) {
             return
         }
         val m = store.clips.adoptRecording(r.id, dur, if (e.vault) store.vault::sealFile else null)
-        if (m == null) showToast("录音没存上") else e.insert(listOf(m))
+        if (m == null) showToast("录音没存上") else e.insert(listOf(m.copy(wave = Waves.encode(r.levels))))
     }
 
     fun cancelRecording() {

@@ -59,15 +59,28 @@ data class Media(
     val size: Long = 0,
     /** 视频/语音的格式（导出时决定扩展名）；图片固定是 JPEG，留空 */
     val mime: String = "",
+    /** 语音的波形（录音时记下的音量，见 [Waves]）；没有就空 */
+    val wave: String = "",
 ) {
     val isVisual: Boolean get() = kind != MediaKind.Audio
 
-    /** 实际显示宽度（百分比）。旧数据没存宽度：图片、视频按三张一排（和以前的九宫格一样），语音按时长 */
+    /** 最窄能拖到多少（百分比）：语音条要放得下播放键、波形和时长 */
+    val minWidth: Int get() = if (kind == MediaKind.Audio) MIN_AUDIO_WIDTH else MIN_WIDTH
+
+    /**
+     * 实际显示宽度（百分比）。拖过角的按拖的；没设过的：图片、视频按三张一排（和以前的九宫格一样），
+     * 语音按时长（越长越宽）
+     */
     val displayWidth: Int
-        get() = if (kind == MediaKind.Audio) Blocks.audioWidth(dur) else if (width > 0) width.coerceIn(MIN_WIDTH, 100) else 33
+        get() = when {
+            width > 0 -> width.coerceIn(minWidth, 100)
+            kind == MediaKind.Audio -> Blocks.audioWidth(dur)
+            else -> 33
+        }
 
     companion object {
         const val MIN_WIDTH = 20
+        const val MIN_AUDIO_WIDTH = 30
     }
 }
 

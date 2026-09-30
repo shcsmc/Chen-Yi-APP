@@ -58,7 +58,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
             // 第 4 版：每条笔记自己的字号（0 = 默认）
             db.execSQL("ALTER TABLE notes ADD COLUMN font INTEGER NOT NULL DEFAULT 0")
         }
-        // 以后：if (oldVersion < 5) { ... } 依次往下
+        if (oldVersion < 5) {
+            // 第 5 版：语音条的波形（录音时记下的音量）
+            db.execSQL("ALTER TABLE images ADD COLUMN wave TEXT NOT NULL DEFAULT ''")
+        }
+        // 以后：if (oldVersion < 6) { ... } 依次往下
     }
 
     fun loadAll(): Snapshot {
@@ -73,12 +77,12 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
             }
         }
         val media = HashMap<String, MutableList<Media>>()
-        db.rawQuery("SELECT id,note,w,h,kind,dur,at,width,align,size,mime FROM images ORDER BY note,pos", null).use { c ->
+        db.rawQuery("SELECT id,note,w,h,kind,dur,at,width,align,size,mime,wave FROM images ORDER BY note,pos", null).use { c ->
             while (c.moveToNext()) {
                 media.getOrPut(c.getString(1)) { ArrayList() } += Media(
                     id = c.getString(0), w = c.getInt(2), h = c.getInt(3), kind = MediaKind.of(c.getInt(4)),
                     dur = c.getLong(5), at = c.getInt(6), width = c.getInt(7), align = c.getInt(8),
-                    size = c.getLong(9), mime = c.getString(10),
+                    size = c.getLong(9), mime = c.getString(10), wave = c.getString(11),
                 )
             }
         }
@@ -142,6 +146,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
                 put("align", m.align)
                 put("size", m.size)
                 put("mime", m.mime)
+                put("wave", m.wave)
             }, SQLiteDatabase.CONFLICT_REPLACE)
         }
     }
@@ -158,7 +163,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "memo.db", null, VERSION)
     }
 
     companion object {
-        const val VERSION = 4
+        const val VERSION = 5
 
         val BUILTIN = listOf(
             Category(Ids.NOTE, "笔记", "doc", Layout.Cards, 0, builtin = true),

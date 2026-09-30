@@ -219,10 +219,11 @@ object Blocks {
     /** 拖角改大小时吸附的宽度（百分比） */
     val SNAPS = listOf(25, 33, 50, 66, 75, 100)
 
-    /** 吸附：离某个常用宽度差 3% 以内就吸过去 */
-    fun snapWidth(raw: Float): Int {
-        val w = raw.coerceIn(Media.MIN_WIDTH.toFloat(), 100f)
-        val near = SNAPS.minByOrNull { kotlin.math.abs(it - w) }!!
-        return if (kotlin.math.abs(near - w) <= 3f) near else w.toInt()
+    /** 吸附：离某个常用宽度差 3% 以内就吸过去；不会比 [min] 更窄 */
+    fun snapWidth(raw: Float, min: Int = Media.MIN_WIDTH): Int {
+        val w = raw.coerceIn(min.toFloat(), 100f)
+        // 按手指实际拖到的位置判断吸不吸：拖到最窄以下时停在最窄，不会被旁边的常用宽度吸走
+        val near = SNAPS.filter { it >= min }.minByOrNull { kotlin.math.abs(it - raw) } ?: return w.toInt()
+        return if (kotlin.math.abs(near - raw) <= 3f) near else w.toInt()
     }
 }

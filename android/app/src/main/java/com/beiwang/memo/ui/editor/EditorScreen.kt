@@ -97,6 +97,7 @@ import com.beiwang.memo.ui.TextEdit
 import com.beiwang.memo.ui.common.Txt
 import com.beiwang.memo.ui.common.pressScale
 import com.beiwang.memo.ui.common.rememberHaptics
+import com.beiwang.memo.ui.glass.GlassButton
 import com.beiwang.memo.ui.glass.GlassIconButton
 import com.beiwang.memo.ui.glass.Icon
 import com.beiwang.memo.ui.glass.LiquidSelector
@@ -106,6 +107,7 @@ import com.beiwang.memo.ui.icons.Icons
 import com.beiwang.memo.ui.theme.LocalPalette
 import com.beiwang.memo.ui.theme.Type
 import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -116,7 +118,9 @@ import kotlinx.coroutines.withContext
 
 /** 编辑页底部工具条的尺寸 */
 object EditorMetrics {
-    val toolHeight = 48.dp
+    val toolHeight = 56.dp
+    /** 选中附件时右下角的「完成」：圆角方块，比左边工具条里的按钮大一圈 */
+    val doneSize = 64.dp
     val toolBottom = 10.dp
     /** 正文底部留白 = 工具条 + 它离底部的距离 + 一点余量 */
     val contentBottom = toolHeight + toolBottom + 40.dp
@@ -494,23 +498,24 @@ fun EditorChrome(app: AppState, e: EditorSession) {
                     selected != null -> {
                         MediaActions(app, e, selected)
                         Spacer(Modifier.weight(1f))
+                        DoneButton { e.selected = null }
                     }
                     else -> {
                         ToolBar {
                             if (cards) {
-                                Tool(onClick = { fontPanel = false; pickImage() }) { Icon(Icons.image, pal.ink, Modifier.size(22.dp)) }
-                                Tool(onClick = { fontPanel = false; pickVideo() }) { Icon(Icons.video, pal.ink, Modifier.size(23.dp)) }
-                                Tool(onClick = { fontPanel = false; record() }) { Icon(Icons.mic, pal.ink, Modifier.size(22.dp)) }
+                                Tool(onClick = { fontPanel = false; pickImage() }) { Icon(Icons.image, pal.ink, Modifier.size(25.dp)) }
+                                Tool(onClick = { fontPanel = false; pickVideo() }) { Icon(Icons.video, pal.ink, Modifier.size(26.dp)) }
+                                Tool(onClick = { fontPanel = false; record() }) { Icon(Icons.mic, pal.ink, Modifier.size(25.dp)) }
                             }
                             Tool(onClick = { fontPanel = !fontPanel }, active = fontPanel) {
-                                Txt("Aa", Type.label.copy(fontSize = 17.sp, fontWeight = FontWeight.SemiBold), color = if (fontPanel) pal.accent else pal.ink)
+                                Txt("Aa", Type.label.copy(fontSize = 19.sp, fontWeight = FontWeight.SemiBold), color = if (fontPanel) pal.accent else pal.ink)
                             }
                         }
                         Spacer(Modifier.weight(1f))
                     }
                 }
                 AnimatedVisibility(
-                    imeVisible && rec == null,
+                    imeVisible && rec == null && selected == null,
                     enter = fadeIn() + scaleIn(initialScale = 0.6f),
                     exit = fadeOut() + scaleOut(targetScale = 0.6f),
                 ) {
@@ -548,7 +553,7 @@ private fun Tool(onClick: () -> Unit, active: Boolean = false, content: @Composa
     val source = remember { MutableInteractionSource() }
     Box(
         Modifier
-            .size(width = 50.dp, height = 40.dp)
+            .size(width = 56.dp, height = 46.dp)
             .scale(pressScale(source, 0.9f))
             .clip(Capsule())
             .background(if (active) pal.accent.copy(alpha = 0.16f) else Color.Transparent)
@@ -558,17 +563,17 @@ private fun Tool(onClick: () -> Unit, active: Boolean = false, content: @Composa
     )
 }
 
-/** 选中附件时的工具：对齐（整组）、删除（可撤销）、完成 */
+/** 选中附件时左下角的工具：对齐（整组）、删除（可撤销）；「完成」单独在右下角（[DoneButton]） */
 @Composable
 private fun MediaActions(app: AppState, e: EditorSession, m: Media) {
     val pal = LocalPalette.current
     val group = e.blocks.firstOrNull { it is GroupEdit && it.items.any { x -> x.id == m.id } } as? GroupEdit
     val align = group?.items?.firstOrNull()?.align ?: 0
     ToolBar {
-        if (m.kind != MediaKind.Audio && group != null) {
+        if (group != null) {
             listOf(Icons.alignLeft, Icons.alignCenter, Icons.alignRight).forEachIndexed { i, icon ->
                 Tool(onClick = { e.apply(Blocks.align(e.pieces(), group.key, i)) }, active = align == i) {
-                    Icon(icon, if (align == i) pal.accent else pal.ink, Modifier.size(22.dp))
+                    Icon(icon, if (align == i) pal.accent else pal.ink, Modifier.size(25.dp))
                 }
             }
         }
@@ -584,8 +589,21 @@ private fun MediaActions(app: AppState, e: EditorSession, m: Media) {
                     MediaKind.Audio -> "已删除语音"
                 }
             ) { if (app.editor === e) e.apply(before) }
-        }) { Icon(Icons.trash, pal.danger, Modifier.size(22.dp)) }
-        Tool(onClick = { e.selected = null }) { Icon(Icons.check, pal.accent, Modifier.size(22.dp)) }
+        }) { Icon(Icons.trash, pal.danger, Modifier.size(25.dp)) }
+    }
+}
+
+/** 选中附件时右下角的「完成」：强调色玻璃的圆角方块，比左边的按钮大一圈 */
+@Composable
+private fun DoneButton(onClick: () -> Unit) {
+    val pal = LocalPalette.current
+    GlassButton(
+        onClick = onClick,
+        modifier = Modifier.padding(start = 10.dp).size(EditorMetrics.doneSize),
+        shape = RoundedRectangle(20.dp),
+        tint = pal.accent,
+    ) {
+        Icon(Icons.check, pal.onAccent, Modifier.size(30.dp))
     }
 }
 
