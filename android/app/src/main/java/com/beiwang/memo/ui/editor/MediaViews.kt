@@ -1,6 +1,7 @@
 package com.beiwang.memo.ui.editor
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -14,10 +15,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -41,6 +43,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -325,7 +328,7 @@ private fun MediaItem(app: AppState, e: EditorSession, m: Media, width: Dp, full
                     .matchParentSize()
                     .border(2.5.dp, pal.accent, if (m.kind == MediaKind.Audio) Capsule() else TileShape)
             )
-            ResizeHandle(e, m, width, full, haptics, Modifier.align(Alignment.BottomEnd))
+            ResizeHandle(e, m, full, haptics, Modifier.align(Alignment.BottomEnd))
         }
     }
 }
@@ -365,7 +368,7 @@ fun VisualTile(app: AppState, e: EditorSession, m: Media, modifier: Modifier = M
  * 语音条：播放键 + 波形 + 时间。
  * - 波形是录音时记下的真实音量（旧的没有就用固定起伏代替），宽度改了柱子数跟着变；
  * - 播放时已播的部分变成强调色，进度每一帧都往前推（120Hz 的屏幕一秒 120 帧，只重画不重组），
- *   播放头经过的几根柱子轻轻鼓起来，暂停后慢慢收回；
+ *   播放头经过的几根柱子轻轻鼓起来，暂停后慢慢收回；放完（或换放别的）已播的颜色平滑退回开头；
  * - 正在放（或暂停着）的这一条，可以在波形上左右拖着跳。
  * 做法参考了 compose-audiowaveform（Apache-2.0）的「柱状波形 + 已播部分换色」，代码是自己写的。
  */
@@ -376,20 +379,22 @@ fun VoiceBar(app: AppState, e: EditorSession?, m: Media, modifier: Modifier = Mo
     val mine = voice.current == m.id
     val playing = mine && voice.playing
     val total = (if (mine && voice.duration > 0) voice.duration else m.dur).coerceAtLeast(1L)
+    val totalNow by rememberUpdatedState(total)
     val progress = remember(m.id) { mutableFloatStateOf(0f) }
     var scrubbing by remember(m.id) { mutableStateOf(false) }
     LaunchedEffect(m.id, mine, playing, scrubbing) {
-        if (scrubbing) return@LaunchedEffect
+        if (scrubbing) return@LaunchedEffect                 // 手指在拖：进度跟着手指
         if (!mine) {
-            progress.floatValue = 0f
+            val from = progress.floatValue
+            if (from > 0f) animate(from, 0f, animationSpec = tween(280)) { v, _ -> progress.floatValue = v }
             return@LaunchedEffect
         }
         if (!playing) {
-            progress.floatValue = (voice.position.toFloat() / total).coerceIn(0f, 1f)
+            progress.floatValue = (voice.position.toFloat() / totalNow).coerceIn(0f, 1f)
             return@LaunchedEffect
         }
         while (isActive) {
-            withFrameNanos { progress.floatValue = (voice.livePosition().toFloat() / total).coerceIn(0f, 1f) }
+            withFrameNanos { progress.floatValue = (voice.livePosition().toFloat() / totalNow).coerceIn(0f, 1f) }
         }
     }
     val bump by animateFloatAsState(if (playing) 1f else 0f, spring(0.8f, 220f), label = "bump")
@@ -417,28 +422,23 @@ fun VoiceBar(app: AppState, e: EditorSession?, m: Media, modifier: Modifier = Mo
         }
         Spacer(Modifier.width(10.dp))
         Waveform(
-            levels, { progress.floatValue }, { bump }, pal.accent,
+            levels, { progress.floatValue },
+            // 放完那一下鼓包直接没有，不跟着进度往回扫
+            { if (voice.current == m.id) bump else 0f },
+            pal.accent,
             Modifier
                 .weight(1f)
                 .height(30.dp)
                 .then(
-                    if (!mine) Modifier else Modifier.pointerInput(m.id) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { p ->
-                                scrubbing = true
-                                progress.floatValue = (p.x / size.width).coerceIn(0f, 1f)
-                            },
-                            onDragEnd = {
-                                voice.seek((progress.floatValue * total).toLong())
-                                scrubbing = false
-                            },
-                            onDragCancel = { scrubbing = false },
-                            onHorizontalDrag = { change, _ ->
-                                change.consume()
-                                progress.floatValue = (change.position.x / size.width).coerceIn(0f, 1f)
-                            },
-                        )
-                    }
+                    if (!mine) Modifier else Modifier.scrub(
+                        m.id,
+                        onStart = { f -> scrubbing = true; progress.floatValue = f },
+                        onMove = { f -> progress.floatValue = f },
+                        onEnd = { lifted ->
+                            if (lifted) voice.seek((progress.floatValue * totalNow).toLong())
+                            scrubbing = false
+                        },
+                    )
                 ),
         )
         Spacer(Modifier.width(10.dp))
@@ -449,6 +449,36 @@ fun VoiceBar(app: AppState, e: EditorSession?, m: Media, modifier: Modifier = Mo
         }
         // 等宽数字：时间在走的时候文字不左右晃
         Txt(durationText(shown), Type.label.copy(fontFeatureSettings = "tnum"), color = pal.ink2, maxLines = 1)
+    }
+}
+
+/**
+ * 在波形上左右拖（[onStart]/[onMove] 给的是 0..1 的位置）。长按之后是在挪附件，不抢；
+ * 手势不管怎么结束（松手、被别人拿走、这一条不再是正在放的）都会调 [onEnd]，「正在拖」不会卡住。
+ */
+private fun Modifier.scrub(
+    key: Any,
+    onStart: (Float) -> Unit,
+    onMove: (Float) -> Unit,
+    onEnd: (lifted: Boolean) -> Unit,
+): Modifier = pointerInput(key) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val longPressAt = down.uptimeMillis + viewConfiguration.longPressTimeoutMillis
+        val start = awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ ->
+            if (change.uptimeMillis < longPressAt) change.consume()
+        } ?: return@awaitEachGesture
+        val w = size.width.coerceAtLeast(1).toFloat()
+        var lifted = false
+        try {
+            onStart((start.position.x / w).coerceIn(0f, 1f))
+            lifted = horizontalDrag(start.id) { c ->
+                c.consume()
+                onMove((c.position.x / w).coerceIn(0f, 1f))
+            }
+        } finally {
+            onEnd(lifted)
+        }
     }
 }
 
@@ -495,7 +525,7 @@ private fun Waveform(levels: FloatArray, progress: () -> Float, bump: () -> Floa
 
 /** 选中的附件右下角的拖角：左右拖改宽度（语音条是改长度），靠近常用宽度（1/4、1/3、1/2…）会吸过去并轻震一下 */
 @Composable
-private fun ResizeHandle(e: EditorSession, m: Media, width: Dp, full: Dp, haptics: Haptics, modifier: Modifier) {
+private fun ResizeHandle(e: EditorSession, m: Media, full: Dp, haptics: Haptics, modifier: Modifier) {
     val pal = LocalPalette.current
     val density = LocalDensity.current
     Box(
@@ -510,9 +540,11 @@ private fun ResizeHandle(e: EditorSession, m: Media, width: Dp, full: Dp, haptic
                 val gapPx = with(density) { MediaGap.toPx() }
                 detectDragGestures(
                     onDragStart = {
-                        startPx = with(density) { width.toPx() }
-                        moved = 0f
+                        // 每次都从现在的宽度算起：这段手势在第一次按下时启动、之后一直复用，
+                        // 从外面拿的宽度会停在那时候（连着拖第二次会先跳回原来的大小）
                         last = e.media.firstOrNull { it.id == m.id }?.displayWidth ?: m.displayWidth
+                        startPx = (fullPx + gapPx) * last / 100f - gapPx
+                        moved = 0f
                     },
                     onDrag = { change, amount ->
                         change.consume()

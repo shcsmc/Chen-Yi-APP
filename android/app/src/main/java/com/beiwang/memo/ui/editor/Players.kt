@@ -45,8 +45,8 @@ private fun MediaPlayer.attach(store: Store, m: Media, vault: Boolean): () -> Un
  * 编辑页里的语音条播放：同一时间只放一条，点另一条会先停掉前一条。
  * 在主线程用（MediaPlayer 的回调回到主线程）。
  *
- * 进度有两个：[position] 每 0.1 秒从播放器读一次（给时间文字用）；[livePosition] 在两次读数之间
- * 按系统时钟往前推，语音条的波形每一帧都用它画，屏幕是 120Hz 就一秒走 120 步，不会一跳一跳。
+ * 进度有两个：[position] 每 0.1 秒从播放器读一次（给时间文字用）；[livePosition] 来自一块自己走的表
+ * （[PlaybackClock]，每 0.1 秒和播放器对一次），语音条的波形每一帧都用它画，屏幕是 120Hz 就一秒走 120 步，不会一跳一跳。
  */
 @Stable
 class VoicePlayer(private val store: Store) {
@@ -65,16 +65,14 @@ class VoicePlayer(private val store: Store) {
     private var player: MediaPlayer? = null
     private var closeSource: () -> Unit = {}
     private var ticker: Job? = null
-    // 最近一次从播放器读到的位置和读数时刻
-    private var anchorPos = 0L
-    private var anchorAt = 0L
+    private val clock = PlaybackClock { SystemClock.uptimeMillis() }
+    // 拖动后播放器还在跳的这一小会儿，有的机型报的还是跳之前的位置，不拿来对表（跳完或最多 1 秒）
+    private var seekUntil = 0L
+    // 准备好之前不能跳
+    private var prepared = false
 
-    /** 此刻的播放位置（毫秒）：播放中按时钟往前推，暂停时就是停下的位置 */
-    fun livePosition(): Long {
-        if (!playing) return position
-        val p = anchorPos + (SystemClock.uptimeMillis() - anchorAt)
-        return if (duration > 0) p.coerceAtMost(duration) else p
-    }
+    /** 此刻的播放位置（毫秒）：播放中按表往前推，暂停时就是停下的位置 */
+    fun livePosition(): Long = if (playing) clock.position(duration) else position
 
     fun toggle(m: Media, vault: Boolean, onError: (String) -> Unit) {
         val p = player
@@ -85,7 +83,7 @@ class VoicePlayer(private val store: Store) {
                 playing = false
             } else {
                 p.start()
-                anchor(position)
+                clock.hold(position)
                 playing = true
                 tick()
             }
@@ -97,12 +95,14 @@ class VoicePlayer(private val store: Store) {
             closeSource = mp.attach(store, m, vault)
             mp.setOnPreparedListener {
                 if (it.duration > 0) duration = it.duration.toLong()
+                prepared = true
                 it.start()
-                anchor(0)
+                clock.hold(0)
                 playing = true
                 tick()
             }
             mp.setOnCompletionListener { stop() }
+            mp.setOnSeekCompleteListener { seekUntil = 0L }
             mp.setOnErrorListener { _, _, _ ->
                 stop()
                 onError("这段语音放不了")
@@ -125,11 +125,12 @@ class VoicePlayer(private val store: Store) {
 
     /** 拖波形跳到某处（只对正在放/暂停着的这一条） */
     fun seek(ms: Long) {
-        val p = player ?: return
+        val p = player?.takeIf { prepared } ?: return
         val t = if (duration > 0) ms.coerceIn(0, duration) else ms.coerceAtLeast(0)
         runCatching { p.seekTo(t, MediaPlayer.SEEK_CLOSEST) }
+        seekUntil = SystemClock.uptimeMillis() + 1_000
         position = t
-        anchor(t)
+        clock.hold(t)
     }
 
     fun stop() {
@@ -142,11 +143,8 @@ class VoicePlayer(private val store: Store) {
         current = null
         playing = false
         position = 0
-    }
-
-    private fun anchor(pos: Long) {
-        anchorPos = pos
-        anchorAt = SystemClock.uptimeMillis()
+        seekUntil = 0L
+        prepared = false
     }
 
     private fun tick() {
@@ -154,10 +152,9 @@ class VoicePlayer(private val store: Store) {
         ticker = store.scope.launch {
             while (isActive && playing) {
                 val p = runCatching { player?.currentPosition?.toLong() }.getOrNull()
-                if (p != null) {
+                if (p != null && SystemClock.uptimeMillis() >= seekUntil) {
                     position = p
-                    // 只在往前走时对表：播放器的读数有时比实际慢一点，往回拉会让进度抖一下
-                    if (p >= livePosition() - 40) anchor(p)
+                    clock.sync(p, duration)
                 }
                 delay(100)
             }
