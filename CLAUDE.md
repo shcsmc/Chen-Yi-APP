@@ -90,7 +90,7 @@
 ## 构建与验证
 
 - 推送到 `main` → `.github/workflows/android.yml` 打正式签名 APK，发布 Release `v1.0.<提交数>` 和固定名 `beiwang.apk`（用户手机从 `releases/latest/download/beiwang.apk` 下载）。**用户说「打包」之前不要合并到 main。**
-- 推送到 `claude/**` 分支 → `.github/workflows/dev.yml`：编译 + 单元测试 + 打「辰Yi记测试」包（包名 `com.beiwang.memo.dev`，和正式版并排安装，不发 Release），在该次运行的 Artifacts 里下载。
+- 推送到 `claude/**` 分支 → `.github/workflows/dev.yml`：编译 + 单元测试 + 打「辰Yi记测试」包（包名 `com.beiwang.memo.dev`，和正式版并排安装），发到固定标签 `dev`（`releases/download/dev/beiwang-dev.apk`）。用户要求：打包之前测试版标成「最新」，仓库首页右边栏显示它（这期间 `releases/latest/download/beiwang.apk` 用不了，两版代码都没用它）；main 里有了新版代码（打包后）自动改回预发布、让出「最新」。
 - 构建类型：`release`（R8 开启，Compose 不开 R8 会明显卡）、`dev`（同 release，改包名和应用名）、`debug`。
 - 云端会话里 `dl.google.com`（安卓 SDK、Google Maven）可能被网络策略拦截，无法本地编译，只能靠分支 CI 编译检查。
 - 迁移脚本可以在本地验证：用 HTTP 服务打开 `legacy/index.html` 造数据，再在同源打开 `migrate.html`（注入假的 `MigrateBridge`）检查输出。

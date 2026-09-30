@@ -1,7 +1,10 @@
 # 开发分支上的检查：编译 + 单元测试，顺便打一个「辰Yi记测试」包（包名 com.beiwang.memo.dev）。
-# 测试包发到固定标签 dev 的「预发布」（每次覆盖），手机直接下载：
+# 测试包发到固定标签 dev（每次覆盖），手机直接下载：
 #   https://github.com/shcsmc/Chen-Yi-APP/releases/download/dev/beiwang-dev.apk
-# 预发布不算 latest：正式版的 releases/latest/download/beiwang.apk 不受影响。
+# 新版（原生）正式发布之前（main 里还是旧的网页版），测试版标成「最新」，仓库首页右边栏的 Releases 显示它；
+# 这期间正式版的固定链接 releases/latest/download/beiwang.apk 用不了（两个版本的代码里都没有用它，
+# 旧版 v1.0.3 从 releases/download/v1.0.3/beiwang.apk 下）。
+# 打包（合并到 main）之后测试版自动改回「预发布」、不再占「最新」：手机正式版从那个固定链接更新。
 name: 分支测试包
 
 on:
@@ -59,17 +62,24 @@ jobs:
           path: android/app/build/outputs/apk/dev/*.apk
           retention-days: 14
 
-      - name: 发布到测试版（预发布，固定标签 dev）
+      - name: 发布测试版（固定标签 dev）
         if: success() && env.MEMO_KEYSTORE_FILE != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/dev/*.apk beiwang-dev.apk
-          NOTES="测试版（开发分支 ${GITHUB_REF_NAME}，提交 ${GITHUB_SHA::7}）。包名 com.beiwang.memo.dev，和正式版并排安装，不影响正式版数据。"
+          N=$(git rev-list --count HEAD)
+          TITLE="辰Yi记 测试版 1.0.${N}"
+          NOTES="测试版 1.0.${N}（开发分支 ${GITHUB_REF_NAME}，提交 ${GITHUB_SHA::7}）。包名 com.beiwang.memo.dev，和正式版并排安装，不影响正式版数据。"
+          # main 里已经有新版代码（打包过了）→ 预发布、让出「最新」；还没打包 → 标成「最新」，右边栏显示测试版
+          if git cat-file -e origin/main:android/app/src/main/java/com/beiwang/memo/data/Store.kt 2>/dev/null; then
+            KIND="--prerelease --latest=false"
+          else
+            KIND="--prerelease=false --latest"
+          fi
           if gh release view dev >/dev/null 2>&1; then
             gh release upload dev beiwang-dev.apk --clobber
-            gh release edit dev --title "辰Yi记 测试版" --notes "$NOTES" --prerelease --latest=false
+            gh release edit dev --title "$TITLE" --notes "$NOTES" $KIND
           else
-            gh release create dev beiwang-dev.apk --target "$GITHUB_SHA" --prerelease --latest=false \
-              --title "辰Yi记 测试版" --notes "$NOTES"
+            gh release create dev beiwang-dev.apk --target "$GITHUB_SHA" $KIND --title "$TITLE" --notes "$NOTES"
           fi
