@@ -1,26 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 深色底 + 午夜主题的三色光晕 -->
+<!-- 辰Yi记 图标背景：纸色（上浅下暖）。由 tools/icon/make_icon.py 生成，别手改 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:pathData="M0,0h108v108h-108z" android:fillColor="#0A0B14" />
     <path android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
-            <gradient android:type="radial" android:centerX="30" android:centerY="28"
-                android:gradientRadius="62" android:startColor="#B35B5BFF" android:endColor="#005B5BFF" />
-        </aapt:attr>
-    </path>
-    <path android:pathData="M0,0h108v108h-108z">
-        <aapt:attr name="android:fillColor">
-            <gradient android:type="radial" android:centerX="86" android:centerY="84"
-                android:gradientRadius="58" android:startColor="#A6FF4F8B" android:endColor="#00FF4F8B" />
-        </aapt:attr>
-    </path>
-    <path android:pathData="M0,0h108v108h-108z">
-        <aapt:attr name="android:fillColor">
-            <gradient android:type="radial" android:centerX="84" android:centerY="22"
-                android:gradientRadius="46" android:startColor="#8019D3C5" android:endColor="#0019D3C5" />
+            <gradient android:type="linear" android:startX="54" android:startY="18"
+                android:endX="54" android:endY="90" android:startColor="#FFFBF7EF" android:endColor="#FFEEE4D2" />
         </aapt:attr>
     </path>
 </vector>

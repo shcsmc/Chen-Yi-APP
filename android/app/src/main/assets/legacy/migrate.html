@@ -1,0 +1,69 @@
+<!doctype html>
+<meta charset="utf-8">
+<script>
+/*
+ * 旧网页版数据导出器：在隐藏的 WebView 里、以旧版同一个源（https://appassets.androidplatform.net）打开，
+ * 读出 IndexedDB「memo-db」，按旧版备份格式（v3）一条一条交给原生，原生写进文件再导入新数据库。
+ * 只读不写：不删、不改旧库里的任何东西。
+ */
+"use strict";
+const B = window.MigrateBridge;
+const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const toDataUrl = blob => new Promise((res, rej) => {
+  const f = new FileReader();
+  f.onload = () => res(f.result);
+  f.onerror = () => rej(f.error);
+  f.readAsDataURL(blob);
+});
+
+async function run() {
+  if (indexedDB.databases) {
+    const list = await indexedDB.databases();
+    if (!list.some(d => d.name === "memo-db")) { B.empty(); return; }
+  }
+  const db = await new Promise((res, rej) => {
+    const r = indexedDB.open("memo-db");
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  if (!db.objectStoreNames.contains("notes")) { db.close(); B.empty(); return; }
+  const store = s => db.transaction(s).objectStore(s);
+  const hasBlobs = db.objectStoreNames.contains("blobs");
+
+  const notes = await req(store("notes").getAll());
+  const kv = {};
+  if (db.objectStoreNames.contains("kv")) (await req(store("kv").getAll())).forEach(x => { kv[x.k] = x.v; });
+
+  let images = 0;
+  notes.forEach(n => { images += (n.imgs || []).length; });
+  B.begin(notes.length, images, JSON.stringify({ tab: kv.tab || null, gest: kv.gest !== false }));
+
+  B.chunk('{"v":3,"at":' + Date.now() + ',"lock":' + JSON.stringify(kv.lock || null) + ',"notes":[');
+  let missing = 0;
+  for (let i = 0; i < notes.length; i++) {
+    const n = Object.assign({}, notes[i]);
+    delete n._b;                       // 旧版运行时的明文缓存，本来就不该落盘
+    const list = n.imgs || [];
+    delete n.imgs;                     // 删掉再加：让 imgs 排在最后，原生读到它时已知道 id/up
+    const imgs = [];
+    for (const m of list) {
+      const rec = hasBlobs ? await req(store("blobs").get(m.id)) : null;
+      if (!rec || !rec.blob) { missing++; continue; }
+      imgs.push({ w: m.w || 0, h: m.h || 0, data: await toDataUrl(rec.blob) });
+    }
+    n.imgs = imgs;
+    B.chunk((i ? "," : "") + JSON.stringify(n));
+    B.progress(i + 1);
+  }
+  B.chunk("]}");
+
+  if (hasBlobs) {
+    const wall = await req(store("blobs").get("__wall__"));
+    if (wall && wall.blob) B.wallpaper(await toDataUrl(wall.blob));
+  }
+  db.close();
+  B.finish(missing);
+}
+
+run().catch(e => B.fail(String((e && (e.message || e.name)) || e)));
+</script>
