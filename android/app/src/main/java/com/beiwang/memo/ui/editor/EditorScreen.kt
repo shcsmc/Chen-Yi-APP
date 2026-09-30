@@ -492,7 +492,8 @@ fun EditorChrome(app: AppState, e: EditorSession) {
             ) {
                 FontSizePanel(e, Modifier.padding(bottom = 10.dp))
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // 底边对齐：选中附件时右边的「完成」比工具条高，工具条不跟着往上挪
+            Row(verticalAlignment = Alignment.Bottom) {
                 when {
                     rec != null -> RecordingBar(app, rec, Modifier.weight(1f))
                     selected != null -> {
